@@ -4,6 +4,10 @@ import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import { markAdminListRestoreOnNextVisit } from "@/lib/admin-list-restore";
+import {
+  fromDatetimeLocal,
+  toDatetimeLocalValue,
+} from "@/lib/publish-datetime";
 import ImageUpload from "../../../ImageUpload";
 import LocationPicker from "../../../LocationPicker";
 import MarkdownEditor from "../../../MarkdownEditor";
@@ -25,7 +29,7 @@ async function readApiError(res: Response, fallback: string) {
 export default function EditDiaryPage() {
   const params = useParams();
   const id = params.id as string;
-  const [date, setDate] = useState("");
+  const [publishedAtInput, setPublishedAtInput] = useState("");
   const [summary, setSummary] = useState("");
   const [location, setLocation] = useState("");
   const [images, setImages] = useState<string[]>([]);
@@ -44,7 +48,9 @@ export default function EditDiaryPage() {
           return;
         }
         const d = await res.json();
-        setDate(d.date ?? "");
+        setPublishedAtInput(
+          toDatetimeLocalValue(d.publishedAt ?? d.date ?? "")
+        );
         setSummary(d.summary ?? "");
         setLocation(d.location ?? "");
         setImages(Array.isArray(d.images) ? d.images : []);
@@ -59,13 +65,25 @@ export default function EditDiaryPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    const parsed = fromDatetimeLocal(publishedAtInput);
+    if (!parsed) {
+      setError("请填写有效的发布时间");
+      return;
+    }
     setLoading(true);
     let success = false;
     try {
       const res = await fetch(`/api/diaries/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date, summary, location, images, pinned }),
+        body: JSON.stringify({
+          date: parsed.date,
+          publishedAt: parsed.publishedAt,
+          summary,
+          location,
+          images,
+          pinned,
+        }),
       });
       if (!res.ok) {
         const message = await readApiError(res, "保存失败");
@@ -121,13 +139,14 @@ export default function EditDiaryPage() {
         </div>
         <div>
           <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            日期
+            发布时间（日期与时分秒，博客列表以此排序并展示）
           </label>
           <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="mt-1 w-full max-w-xs rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+            type="datetime-local"
+            step={1}
+            value={publishedAtInput}
+            onChange={(e) => setPublishedAtInput(e.target.value)}
+            className="mt-1 w-full max-w-md rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
             required
           />
         </div>

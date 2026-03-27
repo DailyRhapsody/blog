@@ -182,6 +182,8 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [seedLoading, setSeedLoading] = useState(false);
   const [seedMessage, setSeedMessage] = useState<string>("");
+  const [wpSyncLoading, setWpSyncLoading] = useState(false);
+  const [wpSyncMessage, setWpSyncMessage] = useState<string>("");
   const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
   const scrollPersistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -302,6 +304,40 @@ export default function AdminPage() {
       })
       .finally(() => setLoading(false));
   }, [searchQuery]);
+
+  async function syncWpPublishedAt() {
+    if (
+      !confirm(
+        "从 dailyrhapsody.data.blog 抓取各篇帖子的精确发布时间（含时分秒），按文章 id 写回当前存储。仅执行一次修正，确定继续？"
+      )
+    ) {
+      return;
+    }
+    setWpSyncLoading(true);
+    setWpSyncMessage("");
+    try {
+      const res = await fetch("/api/admin/sync-wp-published-at", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apply: true }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setWpSyncMessage(data?.error ?? "同步失败");
+        return;
+      }
+      const matched = typeof data?.matched === "number" ? data.matched : 0;
+      const changed = typeof data?.changed === "number" ? data.changed : 0;
+      setWpSyncMessage(
+        `已同步：WordPress ${data?.wpPostCount ?? "?"} 篇，本地对齐 ${matched} 篇，更新了 ${changed} 篇的时间字段。`
+      );
+      load(page, searchQuery);
+    } catch {
+      setWpSyncMessage("同步失败：网络或服务异常");
+    } finally {
+      setWpSyncLoading(false);
+    }
+  }
 
   async function seed() {
     if (!confirm("将用静态数据覆盖当前存储中的文章，确定继续？")) return;
@@ -490,7 +526,15 @@ export default function AdminPage() {
         <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
           文章列表（共 {total} 篇）
         </h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={syncWpPublishedAt}
+            disabled={wpSyncLoading || seedLoading}
+            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            {wpSyncLoading ? "同步中…" : "同步 WordPress 时间"}
+          </button>
           <button
             type="button"
             onClick={seed}
@@ -510,6 +554,9 @@ export default function AdminPage() {
       </div>
       {seedMessage && (
         <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-300">{seedMessage}</p>
+      )}
+      {wpSyncMessage && (
+        <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-300">{wpSyncMessage}</p>
       )}
 
       {/* 文章内容模糊搜索 */}

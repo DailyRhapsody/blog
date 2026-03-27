@@ -5,6 +5,7 @@ import { allDiaries } from "@/app/diaries.data";
 import { guardApiRequest, withAntiScrapeHeaders } from "@/lib/request-guard";
 import { rejectCrossSiteWrite } from "@/lib/same-origin";
 import { extractHashtagsFromMarkdown } from "@/lib/hashtags";
+import { localYmd } from "@/lib/publish-datetime";
 
 const DEFAULT_PAGE_SIZE = 30;
 const MAX_PAGE_SIZE = 100;
@@ -105,7 +106,15 @@ export async function POST(req: Request) {
     if (!ok) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    let body: { date?: string; summary?: string; location?: string; tags?: string[]; images?: string[]; pinned?: boolean };
+    let body: {
+      date?: string;
+      publishedAt?: string;
+      summary?: string;
+      location?: string;
+      tags?: string[];
+      images?: string[];
+      pinned?: boolean;
+    };
     try {
       body = await req.json();
     } catch {
@@ -123,9 +132,24 @@ export async function POST(req: Request) {
     }
     const id = nextId(diaries);
     const summary = body.summary ?? "";
+    let dateStr: string;
+    let publishedAt: string | undefined;
+    const rawPub = body.publishedAt?.trim();
+    if (rawPub) {
+      const t = new Date(rawPub);
+      if (Number.isNaN(t.getTime())) {
+        return NextResponse.json({ error: "发布时间无效" }, { status: 400 });
+      }
+      publishedAt = t.toISOString();
+      dateStr = localYmd(t);
+    } else {
+      dateStr = body.date ?? new Date().toISOString().slice(0, 10);
+      publishedAt = undefined;
+    }
     const newDiary: Diary = {
       id,
-      date: body.date ?? new Date().toISOString().slice(0, 10),
+      date: dateStr,
+      publishedAt,
       pinned: !!body.pinned,
       summary,
       location: body.location?.trim() || "",

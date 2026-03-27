@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "vercel:env": "npx vercel env pull .env.local"
+    "vercel:env": "npx vercel env pull .env.local",
+    "sync-wp-time": "node scripts/sync-wp-published-at.mjs",
+    "sync-wp-time:apply": "node scripts/sync-wp-published-at.mjs --apply"
   },
   "dependencies": {
     "@upstash/ratelimit": "^2.0.8",

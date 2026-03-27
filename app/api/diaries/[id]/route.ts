@@ -5,6 +5,7 @@ import { allDiaries } from "@/app/diaries.data";
 import { guardApiRequest, withAntiScrapeHeaders } from "@/lib/request-guard";
 import { rejectCrossSiteWrite } from "@/lib/same-origin";
 import { extractHashtagsFromMarkdown } from "@/lib/hashtags";
+import { localYmd } from "@/lib/publish-datetime";
 
 export async function GET(
   req: Request,
@@ -60,10 +61,28 @@ export async function PUT(
       }
     }
     const summary = body.summary ?? diaries[index].summary;
+    let nextDate = diaries[index].date;
+    let nextPublished = diaries[index].publishedAt;
+    if (body.publishedAt !== undefined) {
+      const raw = typeof body.publishedAt === "string" ? body.publishedAt.trim() : "";
+      if (raw) {
+        const t = new Date(raw);
+        if (Number.isNaN(t.getTime())) {
+          return NextResponse.json({ error: "发布时间无效" }, { status: 400 });
+        }
+        nextPublished = t.toISOString();
+        nextDate = localYmd(t);
+      } else {
+        nextPublished = undefined;
+        if (body.date !== undefined) nextDate = body.date;
+      }
+    } else if (body.date !== undefined) {
+      nextDate = body.date;
+    }
     const updated: Diary = {
       ...diaries[index],
-      date: body.date ?? diaries[index].date,
-      publishedAt: body.publishedAt !== undefined ? body.publishedAt : diaries[index].publishedAt,
+      date: nextDate,
+      publishedAt: nextPublished,
       pinned: body.pinned !== undefined ? body.pinned : diaries[index].pinned,
       summary,
       location: body.location !== undefined ? body.location.trim() : diaries[index].location,

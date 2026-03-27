@@ -5,7 +5,7 @@ import { Pool } from "pg";
 export type Diary = {
   id: number;
   date: string;
-  /** 可选，精确发布时间（ISO）；若导出/编辑时写入则展示到分钟，否则用 date 中午 */
+  /** 可选，精确发布时间（ISO UTC）；有则列表按此排序并展示到秒，否则用 date 本地中午 */
   publishedAt?: string;
   /** 是否置顶，最多一篇 */
   pinned?: boolean;
