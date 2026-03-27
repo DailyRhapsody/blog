@@ -6,6 +6,7 @@ import Link from "next/link";
 import ImageUpload from "../../../ImageUpload";
 import TagInput from "../../../TagInput";
 import LocationPicker from "../../../LocationPicker";
+import MarkdownEditor from "../../../MarkdownEditor";
 
 async function readApiError(res: Response, fallback: string) {
   try {
@@ -113,14 +114,13 @@ export default function EditDiaryPage() {
       >
         <div>
           <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            发布到博客
+            发布到博客（支持 Markdown）
           </label>
-          <textarea
+          <MarkdownEditor
             value={summary}
-            onChange={(e) => setSummary(e.target.value)}
-            rows={12}
-            placeholder="写点什么…"
-            className="mt-1 w-full rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+            onChange={setSummary}
+            rows={14}
+            placeholder="写点什么…可用 #、##、-、**加粗**、[链接](https://...)"
           />
         </div>
         <div>

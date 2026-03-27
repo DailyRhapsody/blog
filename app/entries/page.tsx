@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { formatDate12h } from "@/lib/format";
+import { renderMarkdown } from "@/lib/markdown";
 
 type Diary = {
   id: number;
@@ -135,15 +136,16 @@ const CalendarHeatmap = memo(function CalendarHeatmap({ datesWithPosts }: { date
 function EntrySummary({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
   const needsExpand = text.split(/\n/).length > MAX_SUMMARY_LINES || text.length > 280;
+  const rendered = useMemo(() => renderMarkdown(text), [text]);
   return (
     <div>
-      <p
-        className={`whitespace-pre-line text-[0.82rem] leading-relaxed text-zinc-600 dark:text-zinc-400 ${
-          expanded ? "" : "line-clamp-6"
+      <div
+        className={`prose prose-zinc max-w-none text-[0.82rem] leading-relaxed dark:prose-invert ${
+          expanded ? "" : "max-h-36 overflow-hidden"
         }`}
       >
-        {text}
-      </p>
+        <div dangerouslySetInnerHTML={{ __html: rendered }} />
+      </div>
       {needsExpand && (
         <button
           type="button"
