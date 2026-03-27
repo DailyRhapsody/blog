@@ -58,7 +58,7 @@ export async function GET(req: Request) {
     : diaries;
   if (q) {
     filtered = filtered.filter((d) => {
-      const text = [d.summary ?? "", (d.tags ?? []).join(" ")].join(" ");
+      const text = [d.summary ?? "", d.location ?? "", (d.tags ?? []).join(" ")].join(" ");
       return text.toLowerCase().includes(q);
     });
   }
@@ -89,7 +89,7 @@ export async function POST(req: Request) {
     if (!ok) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    let body: { date?: string; summary?: string; tags?: string[]; images?: string[]; pinned?: boolean };
+    let body: { date?: string; summary?: string; location?: string; tags?: string[]; images?: string[]; pinned?: boolean };
     try {
       body = await req.json();
     } catch {
@@ -111,6 +111,7 @@ export async function POST(req: Request) {
       date: body.date ?? new Date().toISOString().slice(0, 10),
       pinned: !!body.pinned,
       summary: body.summary ?? "",
+      location: body.location?.trim() || "",
       tags: Array.isArray(body.tags) ? body.tags : [],
       images: Array.isArray(body.images) ? body.images : [],
     };

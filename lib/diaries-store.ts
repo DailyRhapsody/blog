@@ -10,6 +10,7 @@ export type Diary = {
   /** 是否置顶，最多一篇 */
   pinned?: boolean;
   summary: string;
+  location?: string;
   tags?: string[];
   images?: string[];
 };
@@ -61,10 +62,15 @@ async function ensureSchema(): Promise<void> {
             published_at TIMESTAMPTZ NULL,
             pinned BOOLEAN NOT NULL DEFAULT FALSE,
             summary TEXT NOT NULL DEFAULT '',
+            location TEXT NULL,
             tags JSONB NOT NULL DEFAULT '[]'::jsonb,
             images JSONB NOT NULL DEFAULT '[]'::jsonb,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
           );
+        `);
+        await client.query(`
+          ALTER TABLE diaries
+          ADD COLUMN IF NOT EXISTS location TEXT NULL;
         `);
         await client.query(`
           CREATE INDEX IF NOT EXISTS idx_diaries_sort
@@ -95,6 +101,7 @@ function mapRowToDiary(row: {
   published_at: string | Date | null;
   pinned: boolean;
   summary: string;
+  location: string | null;
   tags: unknown;
   images: unknown;
 }): Diary {
@@ -110,6 +117,7 @@ function mapRowToDiary(row: {
     publishedAt: published,
     pinned: !!row.pinned,
     summary: row.summary ?? "",
+    location: row.location ?? undefined,
     tags: normalizeStringArray(row.tags),
     images: normalizeStringArray(row.images),
   };
@@ -143,7 +151,7 @@ export async function getDiaries(fallback: Diary[]): Promise<Diary[]> {
   if (USE_DATABASE) {
     await ensureSchema();
     const res = await getPool().query(
-      `SELECT id, date, published_at, pinned, summary, tags, images FROM diaries`
+      `SELECT id, date, published_at, pinned, summary, location, tags, images FROM diaries`
     );
     if (res.rows.length > 0) {
       return res.rows.map((row) => mapRowToDiary(row));
@@ -166,8 +174,8 @@ export async function saveDiaries(diaries: Diary[]): Promise<void> {
       for (const d of diaries) {
         await client.query(
           `
-            INSERT INTO diaries (id, date, published_at, pinned, summary, tags, images, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, NOW())
+            INSERT INTO diaries (id, date, published_at, pinned, summary, location, tags, images, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, NOW())
           `,
           [
             d.id,
@@ -175,6 +183,7 @@ export async function saveDiaries(diaries: Diary[]): Promise<void> {
             d.publishedAt ?? null,
             !!d.pinned,
             d.summary ?? "",
+            d.location ?? null,
             JSON.stringify(d.tags ?? []),
             JSON.stringify(d.images ?? []),
           ]

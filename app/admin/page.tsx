@@ -11,6 +11,7 @@ type Diary = {
   date: string;
   publishedAt?: string;
   summary: string;
+  location?: string;
   tags?: string[];
   pinned?: boolean;
 };
@@ -71,6 +72,9 @@ function AdminCard({
           <p className="text-[0.75rem] text-zinc-500 dark:text-zinc-400">
             {timeStr}
           </p>
+          {d.location && (
+            <p className="mt-0.5 text-[0.72rem] text-zinc-500 dark:text-zinc-400">📍 {d.location}</p>
+          )}
         </div>
         <div className="relative shrink-0">
           <button
@@ -146,6 +150,8 @@ export default function AdminPage() {
   const [diaries, setDiaries] = useState<Diary[]>([]);
   const [total, setTotal] = useState(0);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileDraft, setProfileDraft] = useState<Profile | null>(null);
+  const [profileEditing, setProfileEditing] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [seedLoading, setSeedLoading] = useState(false);
@@ -244,18 +250,33 @@ export default function AdminPage() {
 
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault();
-    if (!profile) return;
+    if (!profileDraft) return;
     setProfileSaving(true);
     try {
       const res = await fetch("/api/profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(profile),
+        body: JSON.stringify(profileDraft),
       });
-      if (res.ok) setProfile(await res.json());
+      if (res.ok) {
+        setProfile(await res.json());
+        setProfileEditing(false);
+        setProfileDraft(null);
+      }
     } finally {
       setProfileSaving(false);
     }
+  }
+
+  function startEditProfile() {
+    if (!profile) return;
+    setProfileDraft(profile);
+    setProfileEditing(true);
+  }
+
+  function cancelEditProfile() {
+    setProfileEditing(false);
+    setProfileDraft(null);
   }
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -265,87 +286,120 @@ export default function AdminPage() {
       {/* 个人信息 */}
       {profile && (
         <section className="mb-8 rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-          <h2 className="mb-4 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-            个人信息（博客顶部展示）
-          </h2>
-          <form onSubmit={saveProfile} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">姓名</label>
-              <input
-                type="text"
-                value={profile.name}
-                onChange={(e) => setProfile((p) => p && { ...p, name: e.target.value })}
-                className="mt-1 w-full max-w-md rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-              />
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+              个人信息（博客顶部展示）
+            </h2>
+            {!profileEditing && (
+              <button
+                type="button"
+                onClick={startEditProfile}
+                className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                编辑资料
+              </button>
+            )}
+          </div>
+
+          {!profileEditing && (
+            <div className="space-y-3 text-sm text-zinc-700 dark:text-zinc-300">
+              <p><span className="mr-2 text-zinc-500 dark:text-zinc-400">姓名</span>{profile.name || "-"}</p>
+              <p><span className="mr-2 text-zinc-500 dark:text-zinc-400">签名</span>{profile.signature || "-"}</p>
+              <p><span className="mr-2 text-zinc-500 dark:text-zinc-400">位置</span>{profile.location || "-"}</p>
+              <p><span className="mr-2 text-zinc-500 dark:text-zinc-400">行业</span>{profile.industry || "-"}</p>
+              <p><span className="mr-2 text-zinc-500 dark:text-zinc-400">星座</span>{profile.zodiac || "-"}</p>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">签名</label>
-              <input
-                type="text"
-                value={profile.signature}
-                onChange={(e) => setProfile((p) => p && { ...p, signature: e.target.value })}
-                placeholder="君子论迹不论心"
-                className="mt-1 w-full max-w-md rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">头像</label>
-              <div className="mt-1">
-                <ImageUpload
-                  value={profile.avatar ? [profile.avatar] : []}
-                  onChange={(urls) => setProfile((p) => p && { ...p, avatar: urls[0] ?? "" })}
-                  maxCount={1}
+          )}
+
+          {profileEditing && profileDraft && (
+            <form onSubmit={saveProfile} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">姓名</label>
+                <input
+                  type="text"
+                  value={profileDraft.name}
+                  onChange={(e) => setProfileDraft((p) => (p ? { ...p, name: e.target.value } : p))}
+                  className="mt-1 w-full max-w-md rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
                 />
               </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">位置</label>
-              <input
-                type="text"
-                value={profile.location}
-                onChange={(e) => setProfile((p) => p && { ...p, location: e.target.value })}
-                placeholder="杭州"
-                className="mt-1 w-full max-w-md rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">行业</label>
-              <input
-                type="text"
-                value={profile.industry}
-                onChange={(e) => setProfile((p) => p && { ...p, industry: e.target.value })}
-                placeholder="计算机硬件行业"
-                className="mt-1 w-full max-w-md rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">星座</label>
-              <input
-                type="text"
-                value={profile.zodiac}
-                onChange={(e) => setProfile((p) => p && { ...p, zodiac: e.target.value })}
-                placeholder="天秤座"
-                className="mt-1 w-full max-w-md rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">顶部背景图</label>
-              <div className="mt-1">
-                <ImageUpload
-                  value={profile.headerBg ? [profile.headerBg] : []}
-                  onChange={(urls) => setProfile((p) => p && { ...p, headerBg: urls[0] ?? "" })}
-                  maxCount={1}
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">签名</label>
+                <input
+                  type="text"
+                  value={profileDraft.signature}
+                  onChange={(e) => setProfileDraft((p) => (p ? { ...p, signature: e.target.value } : p))}
+                  placeholder="君子论迹不论心"
+                  className="mt-1 w-full max-w-md rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
                 />
               </div>
-            </div>
-            <button
-              type="submit"
-              disabled={profileSaving}
-              className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-            >
-              {profileSaving ? "保存中…" : "保存个人信息"}
-            </button>
-          </form>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">头像</label>
+                <div className="mt-1">
+                  <ImageUpload
+                    value={profileDraft.avatar ? [profileDraft.avatar] : []}
+                    onChange={(urls) => setProfileDraft((p) => (p ? { ...p, avatar: urls[0] ?? "" } : p))}
+                    maxCount={1}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">位置</label>
+                <input
+                  type="text"
+                  value={profileDraft.location}
+                  onChange={(e) => setProfileDraft((p) => (p ? { ...p, location: e.target.value } : p))}
+                  placeholder="杭州"
+                  className="mt-1 w-full max-w-md rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">行业</label>
+                <input
+                  type="text"
+                  value={profileDraft.industry}
+                  onChange={(e) => setProfileDraft((p) => (p ? { ...p, industry: e.target.value } : p))}
+                  placeholder="计算机硬件行业"
+                  className="mt-1 w-full max-w-md rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">星座</label>
+                <input
+                  type="text"
+                  value={profileDraft.zodiac}
+                  onChange={(e) => setProfileDraft((p) => (p ? { ...p, zodiac: e.target.value } : p))}
+                  placeholder="天秤座"
+                  className="mt-1 w-full max-w-md rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">顶部背景图</label>
+                <div className="mt-1">
+                  <ImageUpload
+                    value={profileDraft.headerBg ? [profileDraft.headerBg] : []}
+                    onChange={(urls) => setProfileDraft((p) => (p ? { ...p, headerBg: urls[0] ?? "" } : p))}
+                    maxCount={1}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={profileSaving}
+                  className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                >
+                  {profileSaving ? "保存中…" : "保存个人信息"}
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelEditProfile}
+                  className="rounded-lg border border-zinc-300 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  取消
+                </button>
+              </div>
+            </form>
+          )}
         </section>
       )}
 

@@ -25,6 +25,7 @@ export default function EditDiaryPage() {
   const id = params.id as string;
   const [date, setDate] = useState("");
   const [summary, setSummary] = useState("");
+  const [location, setLocation] = useState("");
   const [tagsStr, setTagsStr] = useState("");
   const [images, setImages] = useState<string[]>([]);
   const [pinned, setPinned] = useState(false);
@@ -45,6 +46,7 @@ export default function EditDiaryPage() {
         setDate(d.date ?? "");
         setSummary(d.summary ?? "");
         setTagsStr((d.tags ?? []).join(", "));
+        setLocation(d.location ?? "");
         setImages(Array.isArray(d.images) ? d.images : []);
         setPinned(!!d.pinned);
       } finally {
@@ -67,7 +69,7 @@ export default function EditDiaryPage() {
       const res = await fetch(`/api/diaries/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date, summary, tags, images, pinned }),
+        body: JSON.stringify({ date, summary, location, tags, images, pinned }),
       });
       if (!res.ok) {
         const message = await readApiError(res, "保存失败");
@@ -130,6 +132,18 @@ export default function EditDiaryPage() {
             onChange={(e) => setDate(e.target.value)}
             className="mt-1 w-full max-w-xs rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
             required
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            定位
+          </label>
+          <input
+            type="text"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            placeholder="例如：杭州·滨江"
+            className="mt-1 w-full max-w-xs rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
           />
         </div>
         <div>

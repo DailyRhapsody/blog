@@ -10,6 +10,7 @@ type Diary = {
   date: string;
   publishedAt?: string;
   summary: string;
+  location?: string;
   tags?: string[];
   images?: string[];
 };
@@ -348,6 +349,9 @@ function EntryCard({
           <p className="text-[0.75rem] text-zinc-500 dark:text-zinc-400">
             {timeStr}
           </p>
+          {item.location && (
+            <p className="mt-0.5 text-[0.72rem] text-zinc-500 dark:text-zinc-400">📍 {item.location}</p>
+          )}
         </div>
         <div className="relative shrink-0">
           <button
