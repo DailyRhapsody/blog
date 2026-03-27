@@ -6,6 +6,20 @@ import Link from "next/link";
 import ImageUpload from "../../ImageUpload";
 import TagInput from "../../TagInput";
 
+async function readApiError(res: Response, fallback: string) {
+  try {
+    const data = await res.json();
+    return data?.error ?? fallback;
+  } catch {
+    try {
+      const text = await res.text();
+      return text || fallback;
+    } catch {
+      return fallback;
+    }
+  }
+}
+
 export default function NewDiaryPage() {
   const [date, setDate] = useState(
     new Date().toISOString().slice(0, 10)
@@ -34,8 +48,8 @@ export default function NewDiaryPage() {
         body: JSON.stringify({ date, summary, tags, images, pinned }),
       });
       if (!res.ok) {
-        const data = await res.json();
-        setError(data.error ?? "保存失败");
+        const message = await readApiError(res, "保存失败");
+        setError(message);
         return;
       }
       success = true;
