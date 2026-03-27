@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import { markAdminListRestoreOnNextVisit } from "@/lib/admin-list-restore";
+import { ensureTagLinesForEdit } from "@/lib/hashtags";
 import {
   fromDatetimeLocal,
   toDatetimeLocalValue,
@@ -51,7 +52,12 @@ export default function EditDiaryPage() {
         setPublishedAtInput(
           toDatetimeLocalValue(d.publishedAt ?? d.date ?? "")
         );
-        setSummary(d.summary ?? "");
+        setSummary(
+          ensureTagLinesForEdit(
+            d.summary ?? "",
+            Array.isArray(d.tags) ? d.tags : undefined
+          )
+        );
         setLocation(d.location ?? "");
         setImages(Array.isArray(d.images) ? d.images : []);
         setPinned(!!d.pinned);

@@ -61,6 +61,16 @@ export async function PUT(
       }
     }
     const summary = body.summary ?? diaries[index].summary;
+    const prev = diaries[index];
+    const extracted = extractHashtagsFromMarkdown(summary);
+    let nextTags = extracted;
+    if (
+      extracted.length === 0 &&
+      summary === prev.summary &&
+      (prev.tags?.length ?? 0) > 0
+    ) {
+      nextTags = prev.tags ?? [];
+    }
     let nextDate = diaries[index].date;
     let nextPublished = diaries[index].publishedAt;
     if (body.publishedAt !== undefined) {
@@ -86,7 +96,7 @@ export async function PUT(
       pinned: body.pinned !== undefined ? body.pinned : diaries[index].pinned,
       summary,
       location: body.location !== undefined ? body.location.trim() : diaries[index].location,
-      tags: extractHashtagsFromMarkdown(summary),
+      tags: nextTags,
       images: body.images !== undefined ? body.images : diaries[index].images,
     };
     diaries[index] = updated;

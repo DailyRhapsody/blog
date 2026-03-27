@@ -55,7 +55,10 @@ function AdminSummary({ text }: { text: string }) {
           expanded ? "" : "line-clamp-6"
         }`}
       >
-        <div dangerouslySetInnerHTML={{ __html: rendered }} />
+        <div
+          className="space-y-[1.15em]"
+          dangerouslySetInnerHTML={{ __html: rendered }}
+        />
       </div>
       {needsExpand && (
         <button

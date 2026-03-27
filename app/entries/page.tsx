@@ -165,7 +165,10 @@ function EntrySummary({ text }: { text: string }) {
           expanded ? "" : "max-h-36 overflow-hidden"
         }`}
       >
-        <div dangerouslySetInnerHTML={{ __html: rendered }} />
+        <div
+          className="space-y-[1.15em]"
+          dangerouslySetInnerHTML={{ __html: rendered }}
+        />
       </div>
       {needsExpand && (
         <button

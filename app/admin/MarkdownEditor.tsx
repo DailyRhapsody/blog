@@ -916,6 +916,7 @@ export default function MarkdownEditor({
       ) : (
         <div className={`${markdownPreviewProseClass} rounded-b-lg px-3 py-3 text-sm`}>
           <div
+            className="space-y-[1.15em]"
             dangerouslySetInnerHTML={{
               __html: previewHtml || "<p class='text-zinc-400'>暂无内容</p>",
             }}

@@ -37,6 +37,20 @@ export function wholeLineHashtagName(line: string): string | null {
   return m?.[1] ?? null;
 }
 
+function normalizeTagList(tags: string[] | undefined): string[] {
+  if (!tags?.length) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const t of tags) {
+    if (typeof t !== "string") continue;
+    const s = t.trim();
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
 /**
  * 从 Markdown 正文中提取标签：`#` 后接至少一个文字/数字/`_`，可含 `-`、`·`。
  * `#` 须在行首或空白/常见标点之后，避免 URL 片段与紧挨的英文词（如 `foo#bar`）。
@@ -63,4 +77,23 @@ export function extractHashtagsFromMarkdown(text: string): string[] {
     }
   }
   return out;
+}
+
+/**
+ * 编辑页专用：若数据库 `tags` 里有项但正文中未出现对应 `#标签`（整行或行内），
+ * 在文末追加整行 `#标签`，避免保存时仅靠 `extractHashtagsFromMarkdown(summary)` 把标签清空。
+ */
+export function ensureTagLinesForEdit(
+  summary: string,
+  tags: string[] | undefined
+): string {
+  const normalized = normalizeTagList(tags);
+  if (normalized.length === 0) return summary ?? "";
+  const base = summary ?? "";
+  const fromText = new Set(extractHashtagsFromMarkdown(base));
+  const missing = normalized.filter((t) => !fromText.has(t));
+  if (missing.length === 0) return base;
+  const suffix = missing.map((t) => `#${t}`).join("\n");
+  const trimmedEnd = base.replace(/\s+$/u, "");
+  return trimmedEnd ? `${trimmedEnd}\n\n${suffix}` : suffix;
 }
