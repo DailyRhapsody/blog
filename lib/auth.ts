@@ -2,7 +2,10 @@ import { cookies } from "next/headers";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 const COOKIE_NAME = "admin_session";
-const MAX_AGE = 60 * 60 * 24 * 7; // 7 days
+/** 未勾选「记住密码」时的会话时长 */
+const MAX_AGE_DEFAULT = 60 * 60 * 24; // 1 day
+/** 勾选后：延长登录，避免关闭标签页后很快失效 */
+const MAX_AGE_REMEMBER = 60 * 60 * 24 * 30; // 30 days
 
 function getSecret() {
   const s = process.env.AUTH_SECRET;
@@ -16,14 +19,15 @@ function sign(payload: string): string {
   return createHmac("sha256", getSecret()).update(payload).digest("hex");
 }
 
-export function createSessionCookie(): string {
+export function createSessionCookie(remember?: boolean): string {
+  const maxAge = remember ? MAX_AGE_REMEMBER : MAX_AGE_DEFAULT;
   const payload = JSON.stringify({
     admin: true,
-    exp: Date.now() + MAX_AGE * 1000,
+    exp: Date.now() + maxAge * 1000,
   });
   const sig = sign(payload);
   const value = Buffer.from(payload).toString("base64url") + "." + sig;
-  return `${COOKIE_NAME}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${MAX_AGE}`;
+  return `${COOKIE_NAME}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
 }
 
 export async function isAdmin(): Promise<boolean> {

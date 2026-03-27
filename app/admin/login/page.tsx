@@ -6,6 +6,7 @@ import Link from "next/link";
 
 function LoginForm() {
   const [password, setPassword] = useState("");
+  const [rememberPassword, setRememberPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -20,7 +21,7 @@ function LoginForm() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ password, remember: rememberPassword }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -59,6 +60,20 @@ function LoginForm() {
           required
           autoFocus
         />
+        <label className="mt-4 flex cursor-pointer items-start gap-2.5 text-sm text-zinc-600 dark:text-zinc-400">
+          <input
+            type="checkbox"
+            checked={rememberPassword}
+            onChange={(e) => setRememberPassword(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-900 dark:focus:ring-zinc-500"
+          />
+          <span>
+            记住密码
+            <span className="mt-0.5 block text-xs font-normal text-zinc-500 dark:text-zinc-500">
+              勾选后约 30 天内保持登录；不勾选约 1 天。密码不会在浏览器里明文保存。
+            </span>
+          </span>
+        </label>
         {error && (
           <p className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p>
         )}

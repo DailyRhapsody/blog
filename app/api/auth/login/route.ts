@@ -23,7 +23,7 @@ export async function POST(req: Request) {
       { status: 500 }
     );
   }
-  let body: { password?: string };
+  let body: { password?: string; remember?: boolean };
   try {
     body = await req.json();
   } catch {
@@ -33,7 +33,7 @@ export async function POST(req: Request) {
     await sleepLoginPenalty();
     return NextResponse.json({ error: "Wrong password" }, { status: 401 });
   }
-  const cookie = createSessionCookie();
+  const cookie = createSessionCookie(body.remember === true);
   const res = NextResponse.json({ ok: true });
   res.headers.set("Set-Cookie", cookie);
   return res;

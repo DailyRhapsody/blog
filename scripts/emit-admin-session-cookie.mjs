@@ -36,7 +36,8 @@ if (!secret || secret.length < 16) {
   process.exit(1);
 }
 
-const MAX_AGE_MS = 60 * 60 * 24 * 7 * 1000;
+/** 与 lib/auth.ts 勾选「记住密码」时一致（30 天），便于本地 curl 调试 */
+const MAX_AGE_MS = 60 * 60 * 24 * 30 * 1000;
 const payload = JSON.stringify({
   admin: true,
   exp: Date.now() + MAX_AGE_MS,
