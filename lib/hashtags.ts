@@ -6,6 +6,22 @@ const INLINE_CODE_RE = /`[^`\n]*`/g;
 const WHOLE_LINE_TAG_RE =
   /^\s*#([\p{L}\p{N}_][\p{L}\p{N}_\u00B7\-]*)\s*$/u;
 
+/**
+ * 整行仅由一个或多个 `#标签`（空格分隔）组成。用于渲染时整段剔除，不进入正文；
+ * 存库原文不变，标签仍由 extractHashtagsFromMarkdown 提取。
+ */
+const LINE_ONLY_HASHTAGS_RE =
+  /^\s*(?:#[\p{L}\p{N}_][\p{L}\p{N}_\u00B7\-]*)(?:\s+#[\p{L}\p{N}_][\p{L}\p{N}_\u00B7\-]*)*\s*$/u;
+
+/** 去掉「整行只是 #标签」的行（代码块外由 markdown 的 mapOutsideFencedBlocks 包一层再调）。 */
+export function stripHashtagOnlyLinesInProse(prose: string): string {
+  if (!prose) return prose;
+  return prose
+    .split("\n")
+    .filter((line) => !LINE_ONLY_HASHTAGS_RE.test(line))
+    .join("\n");
+}
+
 /** 若本行单独是一条标签，返回名称，否则 `null`（编辑器回车续行用）。 */
 export function wholeLineHashtagName(line: string): string | null {
   const m = line.match(WHOLE_LINE_TAG_RE);

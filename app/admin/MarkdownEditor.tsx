@@ -3,10 +3,12 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
+import { highlightHashtagsForEditorHtml } from "@/lib/editor-hashtag-highlight";
 import { wholeLineHashtagName } from "@/lib/hashtags";
 import { renderMarkdown, markdownPreviewProseClass } from "@/lib/markdown";
 
@@ -130,9 +132,26 @@ export default function MarkdownEditor({
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const editBackdropInnerRef = useRef<HTMLDivElement>(null);
   /** Slash 打开期间最后一次光标，避免点菜单时 selection 丢失。 */
   const slashCursorPosRef = useRef(0);
   const previewHtml = useMemo(() => renderMarkdown(value), [value]);
+  const editBackdropHtml = useMemo(
+    () => highlightHashtagsForEditorHtml(value).replace(/\n/g, "<br/>"),
+    [value]
+  );
+
+  const syncEditBackdropScroll = useCallback((t: HTMLTextAreaElement) => {
+    const inner = editBackdropInnerRef.current;
+    if (inner) {
+      inner.style.transform = `translate(${-t.scrollLeft}px,${-t.scrollTop}px)`;
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    if (mode !== "edit" || !taRef.current) return;
+    syncEditBackdropScroll(taRef.current);
+  }, [mode, value, syncEditBackdropScroll]);
 
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashFilter, setSlashFilter] = useState("");
@@ -865,19 +884,35 @@ export default function MarkdownEditor({
       )}
 
       {mode === "edit" ? (
-        <textarea
-          ref={taRef}
-          value={value}
-          onChange={handleTextAreaChange}
-          onClick={handleTextAreaSelect}
-          onSelect={handleTextAreaSelect}
-          onKeyDownCapture={handleTabCapture}
-          onKeyDown={handleKeyDown}
-          rows={rows}
-          placeholder={placeholder}
-          spellCheck={false}
-          className="m-0 max-h-[min(70vh,32rem)] min-h-0 w-full resize-y overflow-y-auto whitespace-pre-wrap break-words rounded-b-lg border-0 bg-zinc-50/80 px-3 py-2 text-left text-sm font-normal leading-relaxed text-zinc-900 outline-none placeholder:text-zinc-400/85 selection:bg-sky-500/30 [overflow-wrap:anywhere] dark:bg-zinc-900/40 dark:text-zinc-200 dark:placeholder:text-zinc-500/85 dark:selection:bg-sky-400/25"
-        />
+        <div className="relative rounded-b-lg bg-zinc-50/80 dark:bg-zinc-900/40">
+          <div
+            className="pointer-events-none absolute inset-0 overflow-hidden rounded-b-lg"
+            aria-hidden
+          >
+            <div
+              ref={editBackdropInnerRef}
+              className="md-editor-syntax-backdrop box-border px-3 py-2 text-left text-sm font-normal leading-relaxed [overflow-wrap:anywhere]"
+              dangerouslySetInnerHTML={{ __html: editBackdropHtml }}
+            />
+          </div>
+          <textarea
+            ref={taRef}
+            value={value}
+            onChange={handleTextAreaChange}
+            onClick={(e) => {
+              handleTextAreaSelect();
+              syncEditBackdropScroll(e.currentTarget);
+            }}
+            onSelect={handleTextAreaSelect}
+            onScroll={(e) => syncEditBackdropScroll(e.currentTarget)}
+            onKeyDownCapture={handleTabCapture}
+            onKeyDown={handleKeyDown}
+            rows={rows}
+            placeholder={placeholder}
+            spellCheck={false}
+            className="relative z-10 m-0 max-h-[min(70vh,32rem)] min-h-0 w-full resize-y overflow-y-auto whitespace-pre-wrap break-words rounded-b-lg border-0 bg-transparent px-3 py-2 text-left text-sm font-normal leading-relaxed text-transparent caret-zinc-900 outline-none placeholder:text-zinc-400/85 selection:bg-sky-500/30 [overflow-wrap:anywhere] dark:caret-zinc-200 dark:placeholder:text-zinc-500/85 dark:selection:bg-sky-400/25"
+          />
+        </div>
       ) : (
         <div className={`${markdownPreviewProseClass} rounded-b-lg px-3 py-3 text-sm`}>
           <div

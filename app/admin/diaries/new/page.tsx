@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { markAdminListRestoreOnNextVisit } from "@/lib/admin-list-restore";
 import ImageUpload from "../../ImageUpload";
 import LocationPicker from "../../LocationPicker";
 import MarkdownEditor from "../../MarkdownEditor";
@@ -56,6 +57,7 @@ export default function NewDiaryPage() {
       setLoading(false);
     }
     if (success) {
+      markAdminListRestoreOnNextVisit();
       router.push("/admin");
       router.refresh();
     }
@@ -66,6 +68,7 @@ export default function NewDiaryPage() {
       <div className="mb-6 flex items-center gap-4">
         <Link
           href="/admin"
+          onClick={() => markAdminListRestoreOnNextVisit()}
           className="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-400"
         >
           ← 返回列表
@@ -143,6 +146,7 @@ export default function NewDiaryPage() {
           </button>
           <Link
             href="/admin"
+            onClick={() => markAdminListRestoreOnNextVisit()}
             className="rounded-lg border border-zinc-300 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
             取消

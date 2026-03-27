@@ -29,6 +29,23 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* 后台 Markdown 编辑区：与 textarea 叠放的 #标签 高亮（浅色紫 / 深色天蓝） */
+.md-editor-syntax-backdrop {
+  color: #18181b;
+}
+.md-editor-syntax-backdrop .dr-md-editor-tag {
+  font-weight: 500;
+  color: #6d28d9;
+}
+@media (prefers-color-scheme: dark) {
+  .md-editor-syntax-backdrop {
+    color: #e4e4e7;
+  }
+  .md-editor-syntax-backdrop .dr-md-editor-tag {
+    color: #38bdf8;
+  }
+}
+
 /* 苹果风交互：统一过渡时长与缓动 */
 @layer utilities {
   .transition-apple {

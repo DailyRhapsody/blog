@@ -1,8 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import { formatDate12h } from "@/lib/format";
+import {
+  clearAdminListRestoreIntent,
+  persistAdminListState,
+  shouldRestoreAdminList,
+  readAdminListState,
+} from "@/lib/admin-list-restore";
 import { markdownPreviewProseClass, renderMarkdown } from "@/lib/markdown";
 import Pagination from "../components/Pagination";
 import ImageUpload from "./ImageUpload";
@@ -60,9 +73,11 @@ function AdminSummary({ text }: { text: string }) {
 function AdminCard({
   d,
   onRemove,
+  onBeforeNavigateToEdit,
 }: {
   d: Diary;
   onRemove: (id: number) => void;
+  onBeforeNavigateToEdit?: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const timeStr = formatDate12h(d.publishedAt ?? d.date + "T12:00:00");
@@ -104,7 +119,10 @@ function AdminCard({
                 <Link
                   href={`/admin/diaries/${d.id}/edit`}
                   className="block w-full px-3 py-2 text-left text-[0.8rem] text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                  onClick={() => setMenuOpen(false)}
+                  onClick={() => {
+                    onBeforeNavigateToEdit?.();
+                    setMenuOpen(false);
+                  }}
                 >
                   编辑
                 </Link>
@@ -166,6 +184,16 @@ export default function AdminPage() {
   const [seedMessage, setSeedMessage] = useState<string>("");
   const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
+  const scrollPersistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restoredPageRef = useRef(false);
+
+  const flushListScrollPosition = useCallback(() => {
+    persistAdminListState({
+      page,
+      searchQuery,
+      scrollY: typeof window !== "undefined" ? window.scrollY : 0,
+    });
+  }, [page, searchQuery]);
 
   const load = useCallback(
     (pageNum: number = page, q: string = searchQuery) => {
@@ -196,6 +224,53 @@ export default function AdminPage() {
   useEffect(() => {
     load(page, searchQuery);
   }, [load, page, searchQuery]);
+
+  useLayoutEffect(() => {
+    if (restoredPageRef.current) return;
+    if (!shouldRestoreAdminList()) return;
+    const s = readAdminListState();
+    if (!s) return;
+    restoredPageRef.current = true;
+    setPage(s.page);
+    setSearchQuery(s.searchQuery);
+  }, []);
+
+  useEffect(() => {
+    persistAdminListState({
+      page,
+      searchQuery,
+      scrollY: typeof window !== "undefined" ? window.scrollY : 0,
+    });
+  }, [page, searchQuery]);
+
+  useEffect(() => {
+    const onScroll = () => {
+      if (scrollPersistTimer.current) clearTimeout(scrollPersistTimer.current);
+      scrollPersistTimer.current = setTimeout(() => {
+        persistAdminListState({
+          page,
+          searchQuery,
+          scrollY: window.scrollY,
+        });
+      }, 120);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (scrollPersistTimer.current) clearTimeout(scrollPersistTimer.current);
+    };
+  }, [page, searchQuery]);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!shouldRestoreAdminList()) return;
+    const s = readAdminListState();
+    const y = s?.scrollY ?? 0;
+    window.scrollTo(0, y);
+    requestAnimationFrame(() => window.scrollTo(0, y));
+    const t = window.setTimeout(() => clearAdminListRestoreIntent(), 300);
+    return () => clearTimeout(t);
+  }, [loading]);
 
   useEffect(() => {
     fetch("/api/profile")
@@ -426,6 +501,7 @@ export default function AdminPage() {
           </button>
           <Link
             href="/admin/diaries/new"
+            onClick={flushListScrollPosition}
             className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
             新建
@@ -462,7 +538,11 @@ export default function AdminPage() {
           <ul className="entries-page-fade-in space-y-4">
             {diaries.map((d) => (
               <li key={d.id}>
-                <AdminCard d={d} onRemove={remove} />
+                <AdminCard
+                  d={d}
+                  onRemove={remove}
+                  onBeforeNavigateToEdit={flushListScrollPosition}
+                />
               </li>
             ))}
           </ul>
