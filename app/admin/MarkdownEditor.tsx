@@ -254,6 +254,16 @@ export default function MarkdownEditor({
     [onChange, value]
   );
 
+  /** 捕获阶段先取消 Tab 的默认行为，避免在 <form> 内焦点被移到其他控件（冒泡阶段再等长逻辑）。 */
+  const handleTabCapture = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (mode !== "edit") return;
+      if (e.key !== "Tab") return;
+      e.preventDefault();
+    },
+    [mode]
+  );
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (mode !== "edit") return;
@@ -266,11 +276,6 @@ export default function MarkdownEditor({
         }
         if (filteredSlash.length > 0) {
           if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            applySlashCommand(filteredSlash[slashSelected].prefix);
-            return;
-          }
-          if (e.key === "Tab" && !e.shiftKey) {
             e.preventDefault();
             applySlashCommand(filteredSlash[slashSelected].prefix);
             return;
@@ -291,24 +296,112 @@ export default function MarkdownEditor({
             return;
           }
         }
+        if (e.key === "Tab") {
+          e.preventDefault();
+          const ta0 = e.currentTarget;
+          const v0 = value;
+          const s0 = ta0.selectionStart;
+          const e0 = ta0.selectionEnd;
+          if (!e.shiftKey && filteredSlash.length > 0) {
+            applySlashCommand(filteredSlash[slashSelected].prefix);
+          } else if (!e.shiftKey) {
+            const ins = v0.slice(0, s0) + "  " + v0.slice(e0);
+            onChange(ins);
+            requestAnimationFrame(() => {
+              const el = taRef.current;
+              if (el) el.selectionStart = el.selectionEnd = s0 + 2;
+            });
+          } else if (s0 >= 2 && v0.slice(s0 - 2, s0) === "  ") {
+            onChange(v0.slice(0, s0 - 2) + v0.slice(e0));
+            requestAnimationFrame(() => {
+              const el = taRef.current;
+              if (el) el.selectionStart = el.selectionEnd = s0 - 2;
+            });
+          }
+          return;
+        }
       }
 
-      /** Tab：标题多一级 #；Shift+Tab：少一级（至多一级 #）。 */
+      /**
+       * Tab / Shift+Tab：一律截获，避免焦点跳出输入框。
+       * 当前行任意光标：标题整行升降级；列表整行加减 2 格缩进（含 - [ ]）；否则多行选区每行加减 2 格，或单光标处插/删空格。
+       */
       if (e.key === "Tab" && !slashOpen) {
+        e.preventDefault();
         const ta = e.currentTarget;
         const v = value;
         const selStart = ta.selectionStart;
         const selEnd = ta.selectionEnd;
-        if (selStart !== selEnd) return;
         const lineStart = v.lastIndexOf("\n", selStart - 1) + 1;
         const lineEnd = v.indexOf("\n", selStart);
         const end = lineEnd === -1 ? v.length : lineEnd;
         const line = v.slice(lineStart, end);
 
+        if (selStart !== selEnd) {
+          const before = v.slice(0, selStart);
+          const chunk = v.slice(selStart, selEnd);
+          const after = v.slice(selEnd);
+          if (e.shiftKey) {
+            const nextChunk = chunk
+              .split("\n")
+              .map((ln) =>
+                ln.startsWith("  ") ? ln.slice(2) : ln.startsWith("\t") ? ln.slice(1) : ln
+              )
+              .join("\n");
+            const newV = before + nextChunk + after;
+            onChange(newV);
+            const delta = nextChunk.length - chunk.length;
+            requestAnimationFrame(() => {
+              const el = taRef.current;
+              if (el) {
+                el.selectionStart = selStart;
+                el.selectionEnd = selEnd + delta;
+              }
+            });
+          } else {
+            const nextChunk = chunk
+              .split("\n")
+              .map((ln) => `  ${ln}`)
+              .join("\n");
+            onChange(before + nextChunk + after);
+            requestAnimationFrame(() => {
+              const el = taRef.current;
+              if (el) {
+                el.selectionStart = selStart;
+                el.selectionEnd = selEnd + (nextChunk.length - chunk.length);
+              }
+            });
+          }
+          return;
+        }
+
         if (e.shiftKey) {
+          const taskM = line.match(/^(\s*)(-\s+\[[ xX]\]\s+)(.*)$/);
+          if (taskM && taskM[1].length >= 2) {
+            const newLine = `${taskM[1].slice(2)}${taskM[2]}${taskM[3]}`;
+            const newValue = v.slice(0, lineStart) + newLine + v.slice(end);
+            onChange(newValue);
+            const delta = newLine.length - line.length;
+            requestAnimationFrame(() => {
+              const el = taRef.current;
+              if (el) el.selectionStart = el.selectionEnd = selStart + delta;
+            });
+            return;
+          }
+          const listM = line.match(/^(\s*)((?:[-*+])|(?:\d+\.))(\s+)(.*)$/);
+          if (listM && !/^\s*-\s+\[[ xX]\]/.test(line) && listM[1].length >= 2) {
+            const newLine = `${listM[1].slice(2)}${listM[2]}${listM[3]}${listM[4]}`;
+            const newValue = v.slice(0, lineStart) + newLine + v.slice(end);
+            onChange(newValue);
+            const delta = newLine.length - line.length;
+            requestAnimationFrame(() => {
+              const el = taRef.current;
+              if (el) el.selectionStart = el.selectionEnd = selStart + delta;
+            });
+            return;
+          }
           const dem = line.match(/^(\s*)(#{2,6})\s+(.*)$/);
           if (dem) {
-            e.preventDefault();
             const hashes = dem[2].slice(0, -1);
             const newLine = `${dem[1]}${hashes} ${dem[3]}`;
             const newValue = v.slice(0, lineStart) + newLine + v.slice(end);
@@ -318,13 +411,20 @@ export default function MarkdownEditor({
               const el = taRef.current;
               if (el) el.selectionStart = el.selectionEnd = selStart + delta;
             });
+            return;
+          }
+          if (selStart >= 2 && v.slice(selStart - 2, selStart) === "  ") {
+            onChange(v.slice(0, selStart - 2) + v.slice(selEnd));
+            requestAnimationFrame(() => {
+              const el = taRef.current;
+              if (el) el.selectionStart = el.selectionEnd = selStart - 2;
+            });
           }
           return;
         }
 
         const pro = line.match(/^(\s*)(#{1,5})\s+(.*)$/);
         if (pro) {
-          e.preventDefault();
           const newLine = `${pro[1]}${pro[2]}# ${pro[3]}`;
           const newValue = v.slice(0, lineStart) + newLine + v.slice(end);
           onChange(newValue);
@@ -333,7 +433,38 @@ export default function MarkdownEditor({
             const el = taRef.current;
             if (el) el.selectionStart = el.selectionEnd = selStart + delta;
           });
+          return;
         }
+
+        const taskM = line.match(/^(\s*)(-\s+\[[ xX]\]\s+)(.*)$/);
+        if (taskM) {
+          const newLine = `${taskM[1]}  ${taskM[2]}${taskM[3]}`;
+          const newValue = v.slice(0, lineStart) + newLine + v.slice(end);
+          onChange(newValue);
+          requestAnimationFrame(() => {
+            const el = taRef.current;
+            if (el) el.selectionStart = el.selectionEnd = selStart + 2;
+          });
+          return;
+        }
+
+        const listM = line.match(/^(\s*)((?:[-*+])|(?:\d+\.))(\s+)(.*)$/);
+        if (listM && !/^\s*-\s+\[[ xX]\]/.test(line)) {
+          const newLine = `${listM[1]}  ${listM[2]}${listM[3]}${listM[4]}`;
+          const newValue = v.slice(0, lineStart) + newLine + v.slice(end);
+          onChange(newValue);
+          requestAnimationFrame(() => {
+            const el = taRef.current;
+            if (el) el.selectionStart = el.selectionEnd = selStart + 2;
+          });
+          return;
+        }
+
+        onChange(v.slice(0, selStart) + "  " + v.slice(selEnd));
+        requestAnimationFrame(() => {
+          const el = taRef.current;
+          if (el) el.selectionStart = el.selectionEnd = selStart + 2;
+        });
         return;
       }
 
@@ -723,6 +854,7 @@ export default function MarkdownEditor({
               const pre = highlightBackdropRef.current;
               if (pre) pre.scrollTop = e.currentTarget.scrollTop;
             }}
+            onKeyDownCapture={handleTabCapture}
             onKeyDown={handleKeyDown}
             rows={rows}
             placeholder={placeholder}
