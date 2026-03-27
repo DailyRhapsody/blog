@@ -34,7 +34,9 @@ export default function LocationPicker({
   value: string;
   onChange: (next: string) => void;
 }) {
-  const [query, setQuery] = useState(value);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState(value);
   const [searching, setSearching] = useState(false);
   const [locating, setLocating] = useState(false);
   const [searchItems, setSearchItems] = useState<NominatimSearchItem[]>([]);
@@ -42,10 +44,28 @@ export default function LocationPicker({
   const [error, setError] = useState("");
 
   useEffect(() => {
-    setQuery(value);
-  }, [value]);
+    if (!open) {
+      setSelected(value);
+      setQuery("");
+      setNearbyOptions([]);
+      setSearchItems([]);
+    }
+  }, [value, open]);
 
   useEffect(() => {
+    if (!open) return;
+    void locateNow();
+  }, [open]);
+
+  function openPicker() {
+    setOpen(true);
+    setSelected(value);
+    setQuery("");
+    setError("");
+  }
+
+  useEffect(() => {
+    if (!open) return;
     const q = query.trim();
     if (q.length < 2) {
       setSearchItems([]);
@@ -72,9 +92,9 @@ export default function LocationPicker({
       }
     }, 280);
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, open]);
 
-  const dedupSearch = useMemo(() => {
+  const dedupSearch = useMemo<string[]>(() => {
     const seen = new Set<string>();
     const list: string[] = [];
     for (const item of searchItems) {
@@ -85,6 +105,11 @@ export default function LocationPicker({
     }
     return list.slice(0, 6);
   }, [searchItems]);
+
+  const allOptions = useMemo(() => {
+    const combined = [...nearbyOptions, ...dedupSearch].filter(Boolean);
+    return Array.from(new Set(combined)).slice(0, 10);
+  }, [nearbyOptions, dedupSearch]);
 
   async function locateNow() {
     if (!navigator.geolocation) {
@@ -117,10 +142,7 @@ export default function LocationPicker({
           ].filter(Boolean);
           const unique = Array.from(new Set(options));
           setNearbyOptions(unique);
-          if (unique[0]) {
-            onChange(unique[0]);
-            setQuery(unique[0]);
-          }
+          if (unique[0] && !selected) setSelected(unique[0]);
         } catch {
           setError("定位成功，但地址解析失败");
         } finally {
@@ -135,72 +157,120 @@ export default function LocationPicker({
     );
   }
 
+  function applySelection() {
+    const finalValue = selected.trim();
+    onChange(finalValue);
+    setOpen(false);
+  }
+
+  function cancelSelection() {
+    setOpen(false);
+    setError("");
+  }
+
+  function clearSelection() {
+    onChange("");
+    setOpen(false);
+    setError("");
+  }
+
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => {
-            const next = e.target.value;
-            setQuery(next);
-            onChange(next);
-          }}
-          placeholder="例如：杭州·滨江"
-          className="w-full max-w-xs rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-        />
-        <button
-          type="button"
-          onClick={locateNow}
-          disabled={locating}
-          className="rounded-lg border border-zinc-300 px-3 py-2 text-xs text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-        >
-          {locating ? "定位中…" : "获取当前位置"}
-        </button>
-      </div>
-
-      {(locating || searching) && (
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">
-          {locating ? "正在获取地理位置…" : "正在搜索地点…"}
-        </p>
-      )}
-      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
-
-      {nearbyOptions.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {nearbyOptions.map((opt) => (
+      {!open ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {value ? (
+            <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+              📍 {value}
+            </span>
+          ) : (
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">未添加位置</span>
+          )}
+          <button
+            type="button"
+            onClick={openPicker}
+            className="rounded-lg border border-zinc-300 px-3 py-2 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            {value ? "修改位置" : "添加位置"}
+          </button>
+          {value && (
             <button
-              key={opt}
               type="button"
-              onClick={() => {
-                onChange(opt);
-                setQuery(opt);
-              }}
-              className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-300 dark:hover:bg-emerald-900/40"
+              onClick={clearSelection}
+              className="rounded-lg border border-zinc-300 px-3 py-2 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
             >
-              {opt}
+              清除
             </button>
-          ))}
+          )}
         </div>
-      )}
-
-      {dedupSearch.length > 0 && (
-        <div className="max-h-40 overflow-auto rounded-lg border border-zinc-200 bg-white/90 p-1 dark:border-zinc-700 dark:bg-zinc-900/90">
-          {dedupSearch.map((item) => (
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索地点（至少 2 个字）"
+              className="w-full max-w-xs rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+            />
             <button
-              key={item}
               type="button"
-              onClick={() => {
-                onChange(item);
-                setQuery(item);
-                setSearchItems([]);
-              }}
-              className="block w-full rounded px-2 py-1.5 text-left text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              onClick={locateNow}
+              disabled={locating}
+              className="rounded-lg border border-zinc-300 px-3 py-2 text-xs text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
             >
-              {item}
+              {locating ? "定位中…" : "刷新附近地点"}
             </button>
-          ))}
-        </div>
+          </div>
+
+          {(locating || searching) && (
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              {locating ? "正在获取地理位置…" : "正在搜索地点…"}
+            </p>
+          )}
+          {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+
+          <div className="max-h-44 overflow-auto rounded-lg border border-zinc-200 bg-white/90 p-1 dark:border-zinc-700 dark:bg-zinc-900/90">
+            {allOptions.length === 0 ? (
+              <p className="px-2 py-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                暂无候选地点，可继续搜索
+              </p>
+            ) : (
+              allOptions.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => {
+                    setSelected(item);
+                  }}
+                  className={`block w-full rounded px-2 py-1.5 text-left text-xs ${
+                    selected === item
+                      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+                      : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  {item}
+                </button>
+              ))
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={applySelection}
+              className="rounded-lg bg-zinc-900 px-3 py-2 text-xs text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            >
+              确定
+            </button>
+            <button
+              type="button"
+              onClick={cancelSelection}
+              className="rounded-lg border border-zinc-300 px-3 py-2 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              取消
+            </button>
+          </div>
+        </>
       )}
     </div>
   );
