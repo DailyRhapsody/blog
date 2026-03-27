@@ -1,5 +1,6 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { Pool } from "pg";
 
 export type Diary = {
   id: number;
@@ -15,6 +16,106 @@ export type Diary = {
 
 const DATA_DIR = join(process.cwd(), "data");
 const DATA_FILE = join(DATA_DIR, "diaries.json");
+const DATABASE_URL = process.env.DATABASE_URL?.trim();
+const USE_DATABASE = Boolean(DATABASE_URL);
+
+let pool: Pool | null = null;
+let schemaReady: Promise<void> | null = null;
+
+function isLocalDbUrl(url: string): boolean {
+  return (
+    url.includes("localhost") ||
+    url.includes("127.0.0.1") ||
+    url.includes("@db:") ||
+    url.includes("@postgres:")
+  );
+}
+
+function getPool(): Pool {
+  if (!DATABASE_URL) {
+    throw new Error("DATABASE_URL is required for PostgreSQL storage.");
+  }
+  if (!pool) {
+    const ssl =
+      process.env.PGSSLMODE === "disable" || isLocalDbUrl(DATABASE_URL)
+        ? undefined
+        : { rejectUnauthorized: false as const };
+    pool = new Pool({
+      connectionString: DATABASE_URL,
+      ssl,
+    });
+  }
+  return pool;
+}
+
+async function ensureSchema(): Promise<void> {
+  if (!USE_DATABASE) return;
+  if (!schemaReady) {
+    schemaReady = (async () => {
+      const client = await getPool().connect();
+      try {
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS diaries (
+            id BIGINT PRIMARY KEY,
+            date TEXT NOT NULL,
+            published_at TIMESTAMPTZ NULL,
+            pinned BOOLEAN NOT NULL DEFAULT FALSE,
+            summary TEXT NOT NULL DEFAULT '',
+            tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+            images JSONB NOT NULL DEFAULT '[]'::jsonb,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          );
+        `);
+        await client.query(`
+          CREATE INDEX IF NOT EXISTS idx_diaries_sort
+          ON diaries (pinned DESC, COALESCE(published_at, date::timestamp) DESC);
+        `);
+      } finally {
+        client.release();
+      }
+    })();
+  }
+  await schemaReady;
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((v): v is string => typeof v === "string");
+}
+
+function mapRowToDiary(row: {
+  id: number | string;
+  date: string;
+  published_at: string | Date | null;
+  pinned: boolean;
+  summary: string;
+  tags: unknown;
+  images: unknown;
+}): Diary {
+  const published =
+    row.published_at == null
+      ? undefined
+      : typeof row.published_at === "string"
+        ? row.published_at
+        : row.published_at.toISOString();
+  return {
+    id: Number(row.id),
+    date: row.date,
+    publishedAt: published,
+    pinned: !!row.pinned,
+    summary: row.summary ?? "",
+    tags: normalizeStringArray(row.tags),
+    images: normalizeStringArray(row.images),
+  };
+}
+
+function assertWritableStorageMode(): void {
+  if (!USE_DATABASE && process.env.NODE_ENV === "production") {
+    throw new Error(
+      "DATABASE_URL is required in production. File storage is not writable in serverless environments."
+    );
+  }
+}
 
 async function readFromFile(): Promise<Diary[] | null> {
   try {
@@ -32,13 +133,68 @@ async function writeToFile(diaries: Diary[]): Promise<void> {
 }
 
 export async function getDiaries(fallback: Diary[]): Promise<Diary[]> {
+  assertWritableStorageMode();
+  if (USE_DATABASE) {
+    await ensureSchema();
+    const res = await getPool().query(
+      `SELECT id, date, published_at, pinned, summary, tags, images FROM diaries`
+    );
+    if (res.rows.length > 0) {
+      return res.rows.map((row) => mapRowToDiary(row));
+    }
+    return fallback;
+  }
   const fromFile = await readFromFile();
   if (fromFile && fromFile.length > 0) return fromFile;
   return fallback;
 }
 
 export async function saveDiaries(diaries: Diary[]): Promise<void> {
+  assertWritableStorageMode();
+  if (USE_DATABASE) {
+    await ensureSchema();
+    const client = await getPool().connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("DELETE FROM diaries");
+      for (const d of diaries) {
+        await client.query(
+          `
+            INSERT INTO diaries (id, date, published_at, pinned, summary, tags, images, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, NOW())
+          `,
+          [
+            d.id,
+            d.date,
+            d.publishedAt ?? null,
+            !!d.pinned,
+            d.summary ?? "",
+            JSON.stringify(d.tags ?? []),
+            JSON.stringify(d.images ?? []),
+          ]
+        );
+      }
+      await client.query("COMMIT");
+      return;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
   await writeToFile(diaries);
+}
+
+export async function hasStoredDiaries(): Promise<boolean> {
+  assertWritableStorageMode();
+  if (USE_DATABASE) {
+    await ensureSchema();
+    const res = await getPool().query(`SELECT 1 FROM diaries LIMIT 1`);
+    return res.rowCount > 0;
+  }
+  const fromFile = await readFromFile();
+  return Array.isArray(fromFile) && fromFile.length > 0;
 }
 
 export function nextId(diaries: Diary[]): number {

@@ -22,7 +22,7 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const limitParam = searchParams.get("limit");
 
-  let diaries = await getDiaries(allDiaries);
+  const diaries = await getDiaries(allDiaries);
 
   if (limitParam == null || limitParam === "") {
     diaries.sort((a, b) => {

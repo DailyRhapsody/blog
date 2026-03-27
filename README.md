@@ -34,3 +34,21 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Storage (Production)
+
+This project supports two storage modes:
+
+- PostgreSQL when `DATABASE_URL` is configured (recommended for production).
+- Local file `data/diaries.json` only as a development fallback.
+
+### Why
+
+Serverless runtimes (for example Vercel) cannot persist writes under app directories such as `/var/task`.
+If `DATABASE_URL` is missing in production, write APIs will fail fast with a clear error.
+
+### Setup
+
+1. Provision a PostgreSQL database (Supabase/Neon/RDS/etc.).
+2. Set `DATABASE_URL` in your deployment environment and local `.env.local`.
+3. (Optional) call `POST /api/seed` while logged in as admin to import `app/diaries.data.ts`.

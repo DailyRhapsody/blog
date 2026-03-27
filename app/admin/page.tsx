@@ -149,6 +149,7 @@ export default function AdminPage() {
   const [profileSaving, setProfileSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [seedLoading, setSeedLoading] = useState(false);
+  const [seedMessage, setSeedMessage] = useState<string>("");
   const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -214,13 +215,22 @@ export default function AdminPage() {
   }, [searchQuery]);
 
   async function seed() {
+    if (!confirm("将用静态数据覆盖当前存储中的文章，确定继续？")) return;
     setSeedLoading(true);
+    setSeedMessage("");
     try {
       const res = await fetch("/api/seed", { method: "POST" });
-      if (res.ok) {
-        setPage(1);
-        load(1, searchQuery);
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setSeedMessage(data?.error ?? "初始化失败");
+        return;
       }
+      const count = typeof data?.count === "number" ? data.count : 0;
+      setSeedMessage(`初始化成功，共导入 ${count} 篇`);
+      setPage(1);
+      load(1, searchQuery);
+    } catch {
+      setSeedMessage("初始化失败：网络或服务异常");
     } finally {
       setSeedLoading(false);
     }
@@ -350,7 +360,7 @@ export default function AdminPage() {
             disabled={seedLoading}
             className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
-            {seedLoading ? "初始化中…" : "从静态数据初始化"}
+            {seedLoading ? "初始化中…" : "仅首次初始化"}
           </button>
           <Link
             href="/admin/diaries/new"
@@ -360,6 +370,9 @@ export default function AdminPage() {
           </Link>
         </div>
       </div>
+      {seedMessage && (
+        <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-300">{seedMessage}</p>
+      )}
 
       {/* 文章内容模糊搜索 */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
