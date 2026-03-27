@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { isAdmin } from "@/lib/auth";
 import { getDiaries, saveDiaries, nextId, type Diary } from "@/lib/diaries-store";
 import { allDiaries } from "@/app/diaries.data";
+import { guardApiRequest, withAntiScrapeHeaders } from "@/lib/request-guard";
+import { rejectCrossSiteWrite } from "@/lib/same-origin";
 
 const DEFAULT_PAGE_SIZE = 30;
 const MAX_PAGE_SIZE = 100;
@@ -19,23 +21,18 @@ function getTagCounts(diaries: Diary[]): { name: string; value: number }[] {
 }
 
 export async function GET(req: Request) {
+  const blocked = await guardApiRequest(req, {
+    scope: "diaries:list",
+    limit: 90,
+    windowMs: 60_000,
+  });
+  if (blocked) return blocked;
+
   const { searchParams } = new URL(req.url);
   const limitParam = searchParams.get("limit");
 
   const diaries = await getDiaries(allDiaries);
-
-  if (limitParam == null || limitParam === "") {
-    diaries.sort((a, b) => {
-      if (a.pinned && !b.pinned) return -1;
-      if (!a.pinned && b.pinned) return 1;
-      return (
-        new Date(b.publishedAt ?? b.date).getTime() -
-        new Date(a.publishedAt ?? a.date).getTime()
-      );
-    });
-    return NextResponse.json(diaries);
-  }
-
+  const admin = await isAdmin();
   diaries.sort((a, b) => {
     if (a.pinned && !b.pinned) return -1;
     if (!a.pinned && b.pinned) return 1;
@@ -44,6 +41,22 @@ export async function GET(req: Request) {
       new Date(a.publishedAt ?? a.date).getTime()
     );
   });
+
+  if (limitParam == null || limitParam === "") {
+    if (!admin) {
+      const limit = DEFAULT_PAGE_SIZE;
+      const items = diaries.slice(0, limit);
+      const body = {
+        items,
+        total: diaries.length,
+        hasMore: diaries.length > items.length,
+        tagCounts: getTagCounts(diaries),
+        dates: [...new Set(diaries.map((d) => d.date))],
+      };
+      return withAntiScrapeHeaders(NextResponse.json(body));
+    }
+    return withAntiScrapeHeaders(NextResponse.json(diaries));
+  }
 
   const limit = Math.min(
     Math.max(1, Number(limitParam) || DEFAULT_PAGE_SIZE),
@@ -80,11 +93,13 @@ export async function GET(req: Request) {
     body.dates = [...new Set(diaries.map((d) => d.date))];
   }
 
-  return NextResponse.json(body);
+  return withAntiScrapeHeaders(NextResponse.json(body));
 }
 
 export async function POST(req: Request) {
   try {
+    const badOrigin = rejectCrossSiteWrite(req);
+    if (badOrigin) return badOrigin;
     const ok = await isAdmin();
     if (!ok) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

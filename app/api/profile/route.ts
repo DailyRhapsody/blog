@@ -1,13 +1,23 @@
 import { NextResponse } from "next/server";
 import { isAdmin } from "@/lib/auth";
 import { getProfile, saveProfile } from "@/lib/profile-store";
+import { guardApiRequest, withAntiScrapeHeaders } from "@/lib/request-guard";
+import { rejectCrossSiteWrite } from "@/lib/same-origin";
 
-export async function GET() {
+export async function GET(req: Request) {
+  const blocked = await guardApiRequest(req, {
+    scope: "profile:get",
+    limit: 90,
+    windowMs: 60_000,
+  });
+  if (blocked) return blocked;
   const profile = await getProfile();
-  return NextResponse.json(profile);
+  return withAntiScrapeHeaders(NextResponse.json(profile));
 }
 
 export async function PUT(req: Request) {
+  const badOrigin = rejectCrossSiteWrite(req);
+  if (badOrigin) return badOrigin;
   const ok = await isAdmin();
   if (!ok) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

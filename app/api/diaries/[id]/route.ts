@@ -2,18 +2,28 @@ import { NextResponse } from "next/server";
 import { isAdmin } from "@/lib/auth";
 import { getDiaries, saveDiaries, type Diary } from "@/lib/diaries-store";
 import { allDiaries } from "@/app/diaries.data";
+import { guardApiRequest, withAntiScrapeHeaders } from "@/lib/request-guard";
+import { rejectCrossSiteWrite } from "@/lib/same-origin";
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const blocked = await guardApiRequest(req, {
+    scope: "diaries:detail",
+    limit: 120,
+    windowMs: 60_000,
+  });
+  if (blocked) return blocked;
   const { id } = await params;
   const diaries = await getDiaries(allDiaries);
   const diary = diaries.find((d) => String(d.id) === id);
   if (!diary) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return withAntiScrapeHeaders(
+      NextResponse.json({ error: "Not found" }, { status: 404 })
+    );
   }
-  return NextResponse.json(diary);
+  return withAntiScrapeHeaders(NextResponse.json(diary));
 }
 
 export async function PUT(
@@ -21,6 +31,8 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const badOrigin = rejectCrossSiteWrite(req);
+    if (badOrigin) return badOrigin;
     const ok = await isAdmin();
     if (!ok) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -74,9 +86,11 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const badOrigin = rejectCrossSiteWrite(req);
+  if (badOrigin) return badOrigin;
   const ok = await isAdmin();
   if (!ok) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

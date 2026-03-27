@@ -3,6 +3,7 @@ import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { put } from "@vercel/blob";
 import { isAdmin } from "@/lib/auth";
+import { rejectCrossSiteWrite } from "@/lib/same-origin";
 
 const UPLOAD_DIR = join(process.cwd(), "public", "uploads");
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
@@ -17,7 +18,11 @@ function extFromMime(mime: string): string {
   return map[mime] ?? "jpg";
 }
 
+const MAX_FILES = 24;
+
 export async function POST(req: Request) {
+  const badOrigin = rejectCrossSiteWrite(req);
+  if (badOrigin) return badOrigin;
   const ok = await isAdmin();
   if (!ok) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -35,6 +40,9 @@ export async function POST(req: Request) {
   }
   if (!files.length) {
     return NextResponse.json({ error: "No files" }, { status: 400 });
+  }
+  if (files.length > MAX_FILES) {
+    return NextResponse.json({ error: `单次最多上传 ${MAX_FILES} 个文件` }, { status: 400 });
   }
 
   const useBlob = !!process.env.BLOB_READ_WRITE_TOKEN;

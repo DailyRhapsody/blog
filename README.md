@@ -35,6 +35,10 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
+## Custom domain & Cloudflare（可选）
+
+当前可使用 Vercel 默认域名（如 `dailyrhapsody.vercel.app`）。后续若绑定自有域名并希望在前端使用 **Cloudflare WAF / 质询** 等边缘防护，参见 **[docs/custom-domain-cloudflare.md](./docs/custom-domain-cloudflare.md)**（含 DNS、SSL、规则草稿与注意事项）。
+
 ## Storage (Production)
 
 This project supports two storage modes:

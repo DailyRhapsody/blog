@@ -2,9 +2,12 @@ import { NextResponse } from "next/server";
 import { isAdmin } from "@/lib/auth";
 import { hasStoredDiaries, saveDiaries } from "@/lib/diaries-store";
 import { allDiaries } from "@/app/diaries.data";
+import { rejectCrossSiteWrite } from "@/lib/same-origin";
 
 /** One-time: copy static allDiaries into current storage (PostgreSQL or local file). */
-export async function POST() {
+export async function POST(req: Request) {
+  const badOrigin = rejectCrossSiteWrite(req);
+  if (badOrigin) return badOrigin;
   const ok = await isAdmin();
   if (!ok) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
