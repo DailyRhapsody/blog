@@ -191,7 +191,7 @@ export async function hasStoredDiaries(): Promise<boolean> {
   if (USE_DATABASE) {
     await ensureSchema();
     const res = await getPool().query(`SELECT 1 FROM diaries LIMIT 1`);
-    return res.rowCount > 0;
+    return res.rows.length > 0;
   }
   const fromFile = await readFromFile();
   return Array.isArray(fromFile) && fromFile.length > 0;
