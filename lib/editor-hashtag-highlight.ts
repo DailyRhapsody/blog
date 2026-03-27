@@ -1,3 +1,5 @@
+import { HASHTAG_NAME_BODY } from "@/lib/hashtags";
+
 const FENCE = /```[\s\S]*?```/g;
 
 function escapeHtml(text: string) {
@@ -27,8 +29,10 @@ export function highlightHashtagsForEditorHtml(markdown: string): string {
   return out;
 }
 
-const BEFORE_HASH =
-  /(^|[\s\u3000,，.;；:：!！?？。、（）()\[\]【】《》「」])(#[\p{L}\p{N}_][\p{L}\p{N}_\u00B7\-]*)/gu;
+const BEFORE_HASH = new RegExp(
+  String.raw`(^|[\s\u3000,，.;；:：!！?？。、（）()\[\]【】《》「」])(#${HASHTAG_NAME_BODY})`,
+  "gu"
+);
 
 function highlightProse(s: string): string {
   const escaped = escapeHtml(s);

@@ -2,16 +2,25 @@ const FENCED_RE = /```[\s\S]*?```/g;
 /** 行内代码整体忽略，避免误提 `#fff`、命令等 */
 const INLINE_CODE_RE = /`[^`\n]*`/g;
 
+/**
+ * `#` 后的标签名（不含 `#`）。首字可为字母数字 `_` 或书名号 `《`，后续可含 `·`、`-`、`》` 等，以支持 `#《书名》`。
+ * 与 extract、整行剔除、编辑器高亮共用同一字符集（见 `HASHTAG_NAME_BODY`）。
+ */
+const TAG = String.raw`[\p{L}\p{N}_《][\p{L}\p{N}_\u00B7\-《》]*`;
+/** 供 `editor-hashtag-highlight` 等拼接正则，须带 `u` 标志 */
+export const HASHTAG_NAME_BODY = TAG;
+
 /** 整行仅为一个 `#标签`（可两侧空白），与 Markdown 标题 `# 空格` 不冲突。 */
-const WHOLE_LINE_TAG_RE =
-  /^\s*#([\p{L}\p{N}_][\p{L}\p{N}_\u00B7\-]*)\s*$/u;
+const WHOLE_LINE_TAG_RE = new RegExp(String.raw`^\s*#(${TAG})\s*$`, "u");
 
 /**
  * 整行仅由一个或多个 `#标签`（空格分隔）组成。用于渲染时整段剔除，不进入正文；
  * 存库原文不变，标签仍由 extractHashtagsFromMarkdown 提取。
  */
-const LINE_ONLY_HASHTAGS_RE =
-  /^\s*(?:#[\p{L}\p{N}_][\p{L}\p{N}_\u00B7\-]*)(?:\s+#[\p{L}\p{N}_][\p{L}\p{N}_\u00B7\-]*)*\s*$/u;
+const LINE_ONLY_HASHTAGS_RE = new RegExp(
+  String.raw`^\s*(?:#${TAG})(?:\s+#${TAG})*\s*$`,
+  "u"
+);
 
 /** 去掉「整行只是 #标签」的行（代码块外由 markdown 的 mapOutsideFencedBlocks 包一层再调）。 */
 export function stripHashtagOnlyLinesInProse(prose: string): string {
@@ -40,8 +49,10 @@ export function extractHashtagsFromMarkdown(text: string): string[] {
   scan = scan.replace(FENCED_RE, (block) => "\n".repeat(block.split("\n").length));
   scan = scan.replace(INLINE_CODE_RE, " ");
 
-  const re =
-    /(?:^|[\s\u3000,，.;；:：!！?？。、（）()\[\]【】《》「」])#([\p{L}\p{N}_][\p{L}\p{N}_\u00B7\-]*)/gu;
+  const re = new RegExp(
+    String.raw`(?:^|[\s\u3000,，.;；:：!！?？。、（）()\[\]【】《》「」])#(${TAG})`,
+    "gu"
+  );
   const seen = new Set<string>();
   const out: string[] = [];
   for (const m of scan.matchAll(re)) {
