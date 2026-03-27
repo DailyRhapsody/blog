@@ -335,7 +335,7 @@ function EntryCard({
     item.publishedAt ?? item.date + "T12:00:00"
   );
   const locationMapUrl = item.location
-    ? `https://uri.amap.com/search?keyword=${encodeURIComponent(item.location)}`
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.location)}`
     : "";
 
   return (

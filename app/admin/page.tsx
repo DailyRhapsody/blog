@@ -72,9 +72,6 @@ function AdminCard({
           <p className="text-[0.75rem] text-zinc-500 dark:text-zinc-400">
             {timeStr}
           </p>
-          {d.location && (
-            <p className="mt-0.5 text-[0.72rem] text-zinc-500 dark:text-zinc-400">📍 {d.location}</p>
-          )}
         </div>
         <div className="relative shrink-0">
           <button
