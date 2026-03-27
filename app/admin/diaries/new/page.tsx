@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import ImageUpload from "../../ImageUpload";
-import TagInput from "../../TagInput";
 import LocationPicker from "../../LocationPicker";
 import MarkdownEditor from "../../MarkdownEditor";
 
@@ -28,7 +27,6 @@ export default function NewDiaryPage() {
   );
   const [summary, setSummary] = useState("");
   const [location, setLocation] = useState("");
-  const [tagsStr, setTagsStr] = useState("");
   const [images, setImages] = useState<string[]>([]);
   const [pinned, setPinned] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -39,16 +37,12 @@ export default function NewDiaryPage() {
     e.preventDefault();
     setError("");
     setLoading(true);
-    const tags = tagsStr
-      .split(/[,，、\s]+/)
-      .map((t) => t.trim())
-      .filter(Boolean);
     let success = false;
     try {
       const res = await fetch("/api/diaries", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date, summary, location, tags, images, pinned }),
+        body: JSON.stringify({ date, summary, location, images, pinned }),
       });
       if (!res.ok) {
         const message = await readApiError(res, "保存失败");
@@ -93,7 +87,7 @@ export default function NewDiaryPage() {
             value={summary}
             onChange={setSummary}
             rows={14}
-            placeholder="写点什么…可用 #、##、-、**加粗**、[链接](https://...)"
+            placeholder="Notion 式 Markdown：「# + 空格」标题、「##」二级…；紧贴 # 的为 #标签 ，单独一行 #标签 后 Enter 可续写下一标签。列表/待办/引用/分隔线与 Notion 一致；Shift+Enter 普通换行"
           />
         </div>
         <div>
@@ -122,14 +116,6 @@ export default function NewDiaryPage() {
           </label>
           <div className="mt-1">
             <ImageUpload value={images} onChange={setImages} />
-          </div>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            标签
-          </label>
-          <div className="mt-1">
-            <TagInput value={tagsStr} onChange={setTagsStr} />
           </div>
         </div>
         <div className="flex items-center gap-2">

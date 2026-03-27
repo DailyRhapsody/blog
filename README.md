@@ -39,6 +39,10 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 当前可使用 Vercel 默认域名（如 `dailyrhapsody.vercel.app`）。后续若绑定自有域名并希望在前端使用 **Cloudflare WAF / 质询** 等边缘防护，参见 **[docs/custom-domain-cloudflare.md](./docs/custom-domain-cloudflare.md)**（含 DNS、SSL、规则草稿与注意事项）。
 
+## 后台 Markdown · AI 辅助（可选）
+
+在环境中配置 `OPENAI_API_KEY`（及可选 `OPENAI_BASE_URL`、`AI_MODEL`）后，管理员在文章编辑页可使用 AI 面板。**Cursor 会员不能作为本站 API**，说明见 **[docs/ai-assistant.md](./docs/ai-assistant.md)**。
+
 ## Storage (Production)
 
 This project supports two storage modes:

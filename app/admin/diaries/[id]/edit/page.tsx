@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import ImageUpload from "../../../ImageUpload";
-import TagInput from "../../../TagInput";
 import LocationPicker from "../../../LocationPicker";
 import MarkdownEditor from "../../../MarkdownEditor";
 
@@ -28,7 +27,6 @@ export default function EditDiaryPage() {
   const [date, setDate] = useState("");
   const [summary, setSummary] = useState("");
   const [location, setLocation] = useState("");
-  const [tagsStr, setTagsStr] = useState("");
   const [images, setImages] = useState<string[]>([]);
   const [pinned, setPinned] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -47,7 +45,6 @@ export default function EditDiaryPage() {
         const d = await res.json();
         setDate(d.date ?? "");
         setSummary(d.summary ?? "");
-        setTagsStr((d.tags ?? []).join(", "));
         setLocation(d.location ?? "");
         setImages(Array.isArray(d.images) ? d.images : []);
         setPinned(!!d.pinned);
@@ -62,16 +59,12 @@ export default function EditDiaryPage() {
     e.preventDefault();
     setError("");
     setLoading(true);
-    const tags = tagsStr
-      .split(/[,，、\s]+/)
-      .map((t) => t.trim())
-      .filter(Boolean);
     let success = false;
     try {
       const res = await fetch(`/api/diaries/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date, summary, location, tags, images, pinned }),
+        body: JSON.stringify({ date, summary, location, images, pinned }),
       });
       if (!res.ok) {
         const message = await readApiError(res, "保存失败");
@@ -120,7 +113,7 @@ export default function EditDiaryPage() {
             value={summary}
             onChange={setSummary}
             rows={14}
-            placeholder="写点什么…可用 #、##、-、**加粗**、[链接](https://...)"
+            placeholder="Notion 式 Markdown：`# ` / `## ` 标题；`#标签` 无空格。整行 #标签 + Enter 续标签。Shift+Enter 普通换行"
           />
         </div>
         <div>
@@ -151,14 +144,6 @@ export default function EditDiaryPage() {
             <ImageUpload value={images} onChange={setImages} />
           </div>
         </div>
-        <div>
-          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            标签
-          </label>
-          <div className="mt-1">
-            <TagInput value={tagsStr} onChange={setTagsStr} />
-          </div>
-        </div>
         <div className="flex items-center gap-2">
           <input
             type="checkbox"
@@ -168,7 +153,7 @@ export default function EditDiaryPage() {
             className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-50"
           />
           <label htmlFor="pinned" className="text-sm text-zinc-700 dark:text-zinc-300">
-            置顶本文（最多一篇，若已有置顶需先取消该篇）
+            置顶本文（最多一篇，若已有置顶需先取消该篇置顶）
           </label>
         </div>
         {error && (

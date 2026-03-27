@@ -4,6 +4,7 @@ import { getDiaries, saveDiaries, type Diary } from "@/lib/diaries-store";
 import { allDiaries } from "@/app/diaries.data";
 import { guardApiRequest, withAntiScrapeHeaders } from "@/lib/request-guard";
 import { rejectCrossSiteWrite } from "@/lib/same-origin";
+import { extractHashtagsFromMarkdown } from "@/lib/hashtags";
 
 export async function GET(
   req: Request,
@@ -58,14 +59,15 @@ export async function PUT(
         );
       }
     }
+    const summary = body.summary ?? diaries[index].summary;
     const updated: Diary = {
       ...diaries[index],
       date: body.date ?? diaries[index].date,
       publishedAt: body.publishedAt !== undefined ? body.publishedAt : diaries[index].publishedAt,
       pinned: body.pinned !== undefined ? body.pinned : diaries[index].pinned,
-      summary: body.summary ?? diaries[index].summary,
+      summary,
       location: body.location !== undefined ? body.location.trim() : diaries[index].location,
-      tags: body.tags !== undefined ? body.tags : diaries[index].tags,
+      tags: extractHashtagsFromMarkdown(summary),
       images: body.images !== undefined ? body.images : diaries[index].images,
     };
     diaries[index] = updated;

@@ -4,7 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { formatDate12h } from "@/lib/format";
-import { renderMarkdown } from "@/lib/markdown";
+import { markdownPreviewProseClass, renderMarkdown } from "@/lib/markdown";
 
 type Diary = {
   id: number;
@@ -140,7 +140,7 @@ function EntrySummary({ text }: { text: string }) {
   return (
     <div>
       <div
-        className={`prose prose-zinc max-w-none text-[0.82rem] leading-relaxed dark:prose-invert ${
+        className={`${markdownPreviewProseClass} text-[0.82rem] leading-relaxed ${
           expanded ? "" : "max-h-36 overflow-hidden"
         }`}
       >
@@ -178,8 +178,12 @@ function EntryComments({
     if (!open) return;
     setLoading(true);
     fetch(`/api/diaries/${diaryId}/comments`)
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        return r.json();
+      })
       .then((data) => setComments(Array.isArray(data) ? data : []))
+      .catch(() => setComments([]))
       .finally(() => setLoading(false));
   }, [diaryId, open]);
 
@@ -195,8 +199,9 @@ function EntryComments({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ author: a, content: c }),
       });
-      const data = await res.json();
-      if (data.id) setComments((prev) => [...prev, data]);
+      if (!res.ok) return;
+      const data = (await res.json().catch(() => null)) as Comment | null;
+      if (data?.id) setComments((prev) => [...prev, data]);
       setContent("");
     } finally {
       setSubmitting(false);
@@ -607,7 +612,12 @@ export default function EntriesPage() {
   );
 
   useEffect(() => {
-    loadPage(0, false, selectedTag).finally(() => setLoading(false));
+    loadPage(0, false, selectedTag)
+      .catch(() => {
+        setItems([]);
+        setTotal(0);
+      })
+      .finally(() => setLoading(false));
   }, [selectedTag, loadPage]);
 
   useEffect(() => {
@@ -639,7 +649,9 @@ export default function EntriesPage() {
         if (!entries[0]?.isIntersecting || loadingMore) return;
         setLoadingMore(true);
         const offset = items.length;
-        loadPage(offset, true, selectedTag).finally(() => setLoadingMore(false));
+        loadPage(offset, true, selectedTag)
+          .catch(() => {})
+          .finally(() => setLoadingMore(false));
       },
       { rootMargin: "200px", threshold: 0 }
     );

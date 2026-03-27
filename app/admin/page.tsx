@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { formatDate12h } from "@/lib/format";
+import { markdownPreviewProseClass, renderMarkdown } from "@/lib/markdown";
 import Pagination from "../components/Pagination";
 import ImageUpload from "./ImageUpload";
 
@@ -33,15 +34,16 @@ function AdminSummary({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
   const needsExpand =
     text.split(/\n/).length > MAX_SUMMARY_LINES || text.length > 280;
+  const rendered = useMemo(() => renderMarkdown(text), [text]);
   return (
     <div>
-      <p
-        className={`whitespace-pre-line text-[0.82rem] leading-relaxed text-zinc-600 dark:text-zinc-400 ${
+      <div
+        className={`${markdownPreviewProseClass} text-[0.82rem] leading-relaxed text-zinc-600 dark:text-zinc-400 ${
           expanded ? "" : "line-clamp-6"
         }`}
       >
-        {text}
-      </p>
+        <div dangerouslySetInnerHTML={{ __html: rendered }} />
+      </div>
       {needsExpand && (
         <button
           type="button"

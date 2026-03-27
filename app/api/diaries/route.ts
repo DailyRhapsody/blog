@@ -4,6 +4,7 @@ import { getDiaries, saveDiaries, nextId, type Diary } from "@/lib/diaries-store
 import { allDiaries } from "@/app/diaries.data";
 import { guardApiRequest, withAntiScrapeHeaders } from "@/lib/request-guard";
 import { rejectCrossSiteWrite } from "@/lib/same-origin";
+import { extractHashtagsFromMarkdown } from "@/lib/hashtags";
 
 const DEFAULT_PAGE_SIZE = 30;
 const MAX_PAGE_SIZE = 100;
@@ -121,13 +122,14 @@ export async function POST(req: Request) {
       }
     }
     const id = nextId(diaries);
+    const summary = body.summary ?? "";
     const newDiary: Diary = {
       id,
       date: body.date ?? new Date().toISOString().slice(0, 10),
       pinned: !!body.pinned,
-      summary: body.summary ?? "",
+      summary,
       location: body.location?.trim() || "",
-      tags: Array.isArray(body.tags) ? body.tags : [],
+      tags: extractHashtagsFromMarkdown(summary),
       images: Array.isArray(body.images) ? body.images : [],
     };
     diaries.unshift(newDiary);
