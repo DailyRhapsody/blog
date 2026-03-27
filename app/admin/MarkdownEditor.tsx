@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { highlightHashtagsForEditorHtml } from "@/lib/editor-hashtag-highlight";
 import { wholeLineHashtagName } from "@/lib/hashtags";
 import { renderMarkdown, markdownPreviewProseClass } from "@/lib/markdown";
 
@@ -94,7 +95,7 @@ export default function MarkdownEditor({
   value,
   onChange,
   rows = 14,
-  placeholder = "行首输入 / 选标题·列表；「# + 空格」标题；紧贴 #标签 ；Shift+Enter 普通换行",
+  placeholder = "行首 / 或 /文字前输入 / 唤出命令；标题行 Tab / Shift+Tab 调整级别；紧贴 #标签 ；Shift+Enter 换行",
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -107,13 +108,21 @@ export default function MarkdownEditor({
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const highlightBackdropRef = useRef<HTMLPreElement>(null);
+  /** Slash 打开期间最后一次光标，避免点菜单时 selection 丢失。 */
+  const slashCursorPosRef = useRef(0);
   const previewHtml = useMemo(() => renderMarkdown(value), [value]);
+  /** 仅编辑区：标签 #xxx 高亮；预览与前台仍显示普通 Markdown。 */
+  const editorHighlightHtml = useMemo(
+    () => highlightHashtagsForEditorHtml(value),
+    [value]
+  );
 
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashFilter, setSlashFilter] = useState("");
-  const [slashLineStart, setSlashLineStart] = useState(0);
+  /** 行内 `/` 的起始下标（去掉 /…filter 后接上 prefix，保留光标后的正文）。 */
+  const [slashReplaceStart, setSlashReplaceStart] = useState(0);
   const [slashLineEnd, setSlashLineEnd] = useState(0);
-  const [slashIndent, setSlashIndent] = useState("");
   const [slashSelected, setSlashSelected] = useState(0);
 
   const filteredSlash = useMemo(() => {
@@ -152,63 +161,64 @@ export default function MarkdownEditor({
       const lineEnd = v.indexOf("\n", pos);
       const end = lineEnd === -1 ? v.length : lineEnd;
       const line = v.slice(lineStart, end);
-      const m = line.match(/^(\s*)\/(.*)$/);
-      const atLineEnd = pos === lineStart + line.length;
-      if (m && atLineEnd) {
-        const f = m[2].trim();
-        setSlashOpen(true);
-        setSlashFilter(f);
-        setSlashLineStart(lineStart);
-        setSlashLineEnd(end);
-        setSlashIndent(m[1]);
-        if (f === "") setSlashSelected(0);
-      } else {
+      const indent = line.match(/^(\s*)/)?.[1] ?? "";
+      const afterIndent = line.slice(indent.length);
+      if (!afterIndent.startsWith("/")) {
         closeSlashMenu();
+        return;
       }
+      const slashIdx = lineStart + indent.length;
+      if (pos <= slashIdx) {
+        closeSlashMenu();
+        return;
+      }
+      const filter = v.slice(slashIdx + 1, pos);
+      slashCursorPosRef.current = pos;
+      setSlashOpen(true);
+      setSlashFilter(filter.trim());
+      setSlashReplaceStart(slashIdx);
+      setSlashLineEnd(end);
+      if (filter.trim() === "") setSlashSelected(0);
     },
     [closeSlashMenu]
   );
 
   const applySlashCommand = useCallback(
     (prefix: string) => {
+      const ta = taRef.current;
+      const pos =
+        ta?.selectionStart ?? slashCursorPosRef.current ?? value.length;
       const v = value;
-      const lineStart = slashLineStart;
       const end = slashLineEnd;
-      const newLine = slashIndent + prefix;
-      const newValue = v.slice(0, lineStart) + newLine + v.slice(end);
+      const start = slashReplaceStart;
+      const newValue = v.slice(0, start) + prefix + v.slice(pos, end) + v.slice(end);
       onChange(newValue);
       closeSlashMenu();
-      const caret = lineStart + newLine.length;
+      const caret = start + prefix.length;
       requestAnimationFrame(() => {
         const el = taRef.current;
         if (el) el.selectionStart = el.selectionEnd = caret;
         el?.focus();
       });
     },
-    [closeSlashMenu, onChange, slashIndent, slashLineEnd, slashLineStart, value]
+    [closeSlashMenu, onChange, slashLineEnd, slashReplaceStart, value]
   );
 
   const cancelSlashLine = useCallback(() => {
+    const ta = taRef.current;
+    const pos =
+      ta?.selectionStart ?? slashCursorPosRef.current ?? slashReplaceStart + 1;
     const v = value;
-    const newLine = slashIndent;
     const newValue =
-      v.slice(0, slashLineStart) + newLine + v.slice(slashLineEnd);
+      v.slice(0, slashReplaceStart) + v.slice(pos, slashLineEnd) + v.slice(slashLineEnd);
     onChange(newValue);
     closeSlashMenu();
-    const caret = slashLineStart + newLine.length;
     requestAnimationFrame(() => {
       const el = taRef.current;
-      if (el) el.selectionStart = el.selectionEnd = caret;
+      if (el) el.selectionStart = el.selectionEnd = slashReplaceStart;
       el?.focus();
     });
-  }, [
-    closeSlashMenu,
-    onChange,
-    slashIndent,
-    slashLineEnd,
-    slashLineStart,
-    value,
-  ]);
+  }, [closeSlashMenu, onChange, slashLineEnd, slashReplaceStart, value]);
 
   const insertSnippet = (snippet: string) => {
     const prefix = value && !value.endsWith("\n") ? "\n" : "";
@@ -281,6 +291,50 @@ export default function MarkdownEditor({
             return;
           }
         }
+      }
+
+      /** Tab：标题多一级 #；Shift+Tab：少一级（至多一级 #）。 */
+      if (e.key === "Tab" && !slashOpen) {
+        const ta = e.currentTarget;
+        const v = value;
+        const selStart = ta.selectionStart;
+        const selEnd = ta.selectionEnd;
+        if (selStart !== selEnd) return;
+        const lineStart = v.lastIndexOf("\n", selStart - 1) + 1;
+        const lineEnd = v.indexOf("\n", selStart);
+        const end = lineEnd === -1 ? v.length : lineEnd;
+        const line = v.slice(lineStart, end);
+
+        if (e.shiftKey) {
+          const dem = line.match(/^(\s*)(#{2,6})\s+(.*)$/);
+          if (dem) {
+            e.preventDefault();
+            const hashes = dem[2].slice(0, -1);
+            const newLine = `${dem[1]}${hashes} ${dem[3]}`;
+            const newValue = v.slice(0, lineStart) + newLine + v.slice(end);
+            onChange(newValue);
+            const delta = newLine.length - line.length;
+            requestAnimationFrame(() => {
+              const el = taRef.current;
+              if (el) el.selectionStart = el.selectionEnd = selStart + delta;
+            });
+          }
+          return;
+        }
+
+        const pro = line.match(/^(\s*)(#{1,5})\s+(.*)$/);
+        if (pro) {
+          e.preventDefault();
+          const newLine = `${pro[1]}${pro[2]}# ${pro[3]}`;
+          const newValue = v.slice(0, lineStart) + newLine + v.slice(end);
+          onChange(newValue);
+          const delta = newLine.length - line.length;
+          requestAnimationFrame(() => {
+            const el = taRef.current;
+            if (el) el.selectionStart = el.selectionEnd = selStart + delta;
+          });
+        }
+        return;
       }
 
       if (e.key !== "Enter" || e.shiftKey) return;
@@ -616,7 +670,7 @@ export default function MarkdownEditor({
           role="presentation"
         >
           <p className="mb-1.5 text-[0.65rem] font-medium text-zinc-500 dark:text-zinc-400">
-            / 块命令 · ↑↓ · Enter / Tab 插入 · Esc 取消
+            / 块命令（/ 可在已有文字前）· ↑↓ · Enter/Tab 插入 · Esc 取消
           </p>
           <ul className="max-h-40 space-y-0.5 overflow-y-auto overscroll-contain" role="listbox">
             {filteredSlash.length === 0 ? (
@@ -652,17 +706,30 @@ export default function MarkdownEditor({
       )}
 
       {mode === "edit" ? (
-        <textarea
-          ref={taRef}
-          value={value}
-          onChange={handleTextAreaChange}
-          onClick={handleTextAreaSelect}
-          onSelect={handleTextAreaSelect}
-          onKeyDown={handleKeyDown}
-          rows={rows}
-          placeholder={placeholder}
-          className="w-full resize-y rounded-b-lg border-0 bg-transparent px-3 py-2 text-sm leading-relaxed text-zinc-900 outline-none dark:text-zinc-50"
-        />
+        <div className="grid grid-cols-1 rounded-b-lg">
+          <pre
+            ref={highlightBackdropRef}
+            aria-hidden
+            className="pointer-events-none col-start-1 row-start-1 z-0 m-0 max-h-[min(70vh,32rem)] min-h-0 w-full overflow-y-auto whitespace-pre-wrap break-words border-0 bg-zinc-50/80 px-3 py-2 text-left text-sm leading-relaxed text-zinc-900 [overflow-wrap:anywhere] dark:bg-zinc-900/40 dark:text-zinc-200 [&_.dr-md-editor-tag]:font-semibold [&_.dr-md-editor-tag]:text-emerald-600 dark:[&_.dr-md-editor-tag]:text-emerald-400"
+            dangerouslySetInnerHTML={{ __html: editorHighlightHtml }}
+          />
+          <textarea
+            ref={taRef}
+            value={value}
+            onChange={handleTextAreaChange}
+            onClick={handleTextAreaSelect}
+            onSelect={handleTextAreaSelect}
+            onScroll={(e) => {
+              const pre = highlightBackdropRef.current;
+              if (pre) pre.scrollTop = e.currentTarget.scrollTop;
+            }}
+            onKeyDown={handleKeyDown}
+            rows={rows}
+            placeholder={placeholder}
+            spellCheck={false}
+            className="col-start-1 row-start-1 z-10 m-0 max-h-[min(70vh,32rem)] min-h-0 w-full resize-y overflow-y-auto whitespace-pre-wrap break-words rounded-b-lg border-0 bg-transparent px-3 py-2 text-sm leading-relaxed text-transparent caret-zinc-900 outline-none placeholder:text-zinc-400/85 selection:bg-sky-500/30 [overflow-wrap:anywhere] dark:placeholder:text-zinc-500/85 dark:caret-zinc-100 dark:selection:bg-sky-400/25"
+          />
+        </div>
       ) : (
         <div className={`${markdownPreviewProseClass} rounded-b-lg px-3 py-3 text-sm`}>
           <div
