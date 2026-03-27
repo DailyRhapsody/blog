@@ -9,8 +9,8 @@ function escapeHtml(text: string) {
 }
 
 /**
- * 仅用于后台编辑器 backdrop：给紧贴 # 的 #标签 包一层 span，与 extractHashtagsFromMarkdown 规则一致。
- * 不写入正文、不影响前台 / 预览的 renderMarkdown。
+ * 给紧贴 # 的 #标签 包一层 span（与 extractHashtagsFromMarkdown 一致）。
+ * 供 renderMarkdown 在渲染前注入，用于预览/前台正文中的标签配色；不写入数据库原文。
  */
 export function highlightHashtagsForEditorHtml(markdown: string): string {
   if (!markdown) return "";
