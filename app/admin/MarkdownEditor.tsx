@@ -7,7 +7,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { highlightHashtagsForEditorHtml } from "@/lib/editor-hashtag-highlight";
 import { wholeLineHashtagName } from "@/lib/hashtags";
 import { renderMarkdown, markdownPreviewProseClass } from "@/lib/markdown";
 
@@ -91,6 +90,29 @@ const AI_PRESETS: { label: string; instruction: string }[] = [
   { label: "略正式", instruction: "将选中内容改写得略正式、书面一些，保留 Notion 兼容 Markdown。" },
 ];
 
+/** 行首在已有 indentLen 字符的缩进后插入 insertLen 个字符时映射原 caret（落在缩进内则不变）。 */
+function caretAfterGrowIndentAtLineStart(
+  lineStart: number,
+  caret: number,
+  indentLen: number,
+  insertLen: number
+): number {
+  const contentStart = lineStart + indentLen;
+  return caret < contentStart ? caret : caret + insertLen;
+}
+
+/** 从行首删掉连续 shrinkLen 个字符后映射 caret（落在删区内则夹到行首）。 */
+function caretAfterShrinkLineStart(
+  lineStart: number,
+  caret: number,
+  shrinkLen: number
+): number {
+  const delEnd = lineStart + shrinkLen;
+  if (caret <= lineStart) return caret;
+  if (caret < delEnd) return lineStart;
+  return caret - shrinkLen;
+}
+
 export default function MarkdownEditor({
   value,
   onChange,
@@ -108,15 +130,9 @@ export default function MarkdownEditor({
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
   const taRef = useRef<HTMLTextAreaElement>(null);
-  const highlightBackdropRef = useRef<HTMLPreElement>(null);
   /** Slash 打开期间最后一次光标，避免点菜单时 selection 丢失。 */
   const slashCursorPosRef = useRef(0);
   const previewHtml = useMemo(() => renderMarkdown(value), [value]);
-  /** 仅编辑区：标签 #xxx 高亮；预览与前台仍显示普通 Markdown。 */
-  const editorHighlightHtml = useMemo(
-    () => highlightHashtagsForEditorHtml(value),
-    [value]
-  );
 
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashFilter, setSlashFilter] = useState("");
@@ -381,10 +397,10 @@ export default function MarkdownEditor({
             const newLine = `${taskM[1].slice(2)}${taskM[2]}${taskM[3]}`;
             const newValue = v.slice(0, lineStart) + newLine + v.slice(end);
             onChange(newValue);
-            const delta = newLine.length - line.length;
+            const nextCaret = caretAfterShrinkLineStart(lineStart, selStart, 2);
             requestAnimationFrame(() => {
               const el = taRef.current;
-              if (el) el.selectionStart = el.selectionEnd = selStart + delta;
+              if (el) el.selectionStart = el.selectionEnd = nextCaret;
             });
             return;
           }
@@ -393,10 +409,10 @@ export default function MarkdownEditor({
             const newLine = `${listM[1].slice(2)}${listM[2]}${listM[3]}${listM[4]}`;
             const newValue = v.slice(0, lineStart) + newLine + v.slice(end);
             onChange(newValue);
-            const delta = newLine.length - line.length;
+            const nextCaret = caretAfterShrinkLineStart(lineStart, selStart, 2);
             requestAnimationFrame(() => {
               const el = taRef.current;
-              if (el) el.selectionStart = el.selectionEnd = selStart + delta;
+              if (el) el.selectionStart = el.selectionEnd = nextCaret;
             });
             return;
           }
@@ -441,9 +457,15 @@ export default function MarkdownEditor({
           const newLine = `${taskM[1]}  ${taskM[2]}${taskM[3]}`;
           const newValue = v.slice(0, lineStart) + newLine + v.slice(end);
           onChange(newValue);
+          const nextCaret = caretAfterGrowIndentAtLineStart(
+            lineStart,
+            selStart,
+            taskM[1].length,
+            2
+          );
           requestAnimationFrame(() => {
             const el = taRef.current;
-            if (el) el.selectionStart = el.selectionEnd = selStart + 2;
+            if (el) el.selectionStart = el.selectionEnd = nextCaret;
           });
           return;
         }
@@ -453,9 +475,15 @@ export default function MarkdownEditor({
           const newLine = `${listM[1]}  ${listM[2]}${listM[3]}${listM[4]}`;
           const newValue = v.slice(0, lineStart) + newLine + v.slice(end);
           onChange(newValue);
+          const nextCaret = caretAfterGrowIndentAtLineStart(
+            lineStart,
+            selStart,
+            listM[1].length,
+            2
+          );
           requestAnimationFrame(() => {
             const el = taRef.current;
-            if (el) el.selectionStart = el.selectionEnd = selStart + 2;
+            if (el) el.selectionStart = el.selectionEnd = nextCaret;
           });
           return;
         }
@@ -837,31 +865,19 @@ export default function MarkdownEditor({
       )}
 
       {mode === "edit" ? (
-        <div className="grid grid-cols-1 rounded-b-lg">
-          <pre
-            ref={highlightBackdropRef}
-            aria-hidden
-            className="pointer-events-none col-start-1 row-start-1 z-0 m-0 max-h-[min(70vh,32rem)] min-h-0 w-full overflow-y-auto whitespace-pre-wrap break-words border-0 bg-zinc-50/80 px-3 py-2 text-left text-sm leading-relaxed text-zinc-900 [overflow-wrap:anywhere] dark:bg-zinc-900/40 dark:text-zinc-200 [&_.dr-md-editor-tag]:font-semibold [&_.dr-md-editor-tag]:text-emerald-600 dark:[&_.dr-md-editor-tag]:text-emerald-400"
-            dangerouslySetInnerHTML={{ __html: editorHighlightHtml }}
-          />
-          <textarea
-            ref={taRef}
-            value={value}
-            onChange={handleTextAreaChange}
-            onClick={handleTextAreaSelect}
-            onSelect={handleTextAreaSelect}
-            onScroll={(e) => {
-              const pre = highlightBackdropRef.current;
-              if (pre) pre.scrollTop = e.currentTarget.scrollTop;
-            }}
-            onKeyDownCapture={handleTabCapture}
-            onKeyDown={handleKeyDown}
-            rows={rows}
-            placeholder={placeholder}
-            spellCheck={false}
-            className="col-start-1 row-start-1 z-10 m-0 max-h-[min(70vh,32rem)] min-h-0 w-full resize-y overflow-y-auto whitespace-pre-wrap break-words rounded-b-lg border-0 bg-transparent px-3 py-2 text-sm leading-relaxed text-transparent caret-zinc-900 outline-none placeholder:text-zinc-400/85 selection:bg-sky-500/30 [overflow-wrap:anywhere] dark:placeholder:text-zinc-500/85 dark:caret-zinc-100 dark:selection:bg-sky-400/25"
-          />
-        </div>
+        <textarea
+          ref={taRef}
+          value={value}
+          onChange={handleTextAreaChange}
+          onClick={handleTextAreaSelect}
+          onSelect={handleTextAreaSelect}
+          onKeyDownCapture={handleTabCapture}
+          onKeyDown={handleKeyDown}
+          rows={rows}
+          placeholder={placeholder}
+          spellCheck={false}
+          className="m-0 max-h-[min(70vh,32rem)] min-h-0 w-full resize-y overflow-y-auto whitespace-pre-wrap break-words rounded-b-lg border-0 bg-zinc-50/80 px-3 py-2 text-left text-sm font-normal leading-relaxed text-zinc-900 outline-none placeholder:text-zinc-400/85 selection:bg-sky-500/30 [overflow-wrap:anywhere] dark:bg-zinc-900/40 dark:text-zinc-200 dark:placeholder:text-zinc-500/85 dark:selection:bg-sky-400/25"
+        />
       ) : (
         <div className={`${markdownPreviewProseClass} rounded-b-lg px-3 py-3 text-sm`}>
           <div

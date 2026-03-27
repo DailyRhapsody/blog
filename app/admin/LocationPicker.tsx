@@ -27,6 +27,23 @@ function simplifyLocation(item: NominatimSearchItem): string {
   return compact || item.display_name.split(",").slice(0, 3).join("·");
 }
 
+const SEARCH_RESULT_LIMIT = 24;
+const NEARBY_MERGED_CAP = 32;
+const TOTAL_OPTIONS_CAP = 56;
+
+function dedupeStringsPreserveOrder(items: string[], max: number): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const s of items) {
+    const t = s.trim();
+    if (!t || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
 export default function LocationPicker({
   value,
   onChange,
@@ -81,9 +98,37 @@ export default function LocationPicker({
             [city, area, road].filter(Boolean).join("·"),
             simplifyLocation(data),
           ].filter(Boolean);
-          const unique = Array.from(new Set(options));
-          setNearbyOptions(unique);
-          if (unique[0] && !selected) setSelected(unique[0]);
+
+          const searchQ = [city, area].filter(Boolean).join(" ").trim() || simplifyLocation(data);
+          let merged = dedupeStringsPreserveOrder(options, NEARBY_MERGED_CAP);
+
+          if (searchQ.length >= 1) {
+            try {
+              await new Promise((r) => setTimeout(r, 400));
+              const url = new URL("https://nominatim.openstreetmap.org/search");
+              url.searchParams.set("format", "jsonv2");
+              url.searchParams.set("addressdetails", "1");
+              url.searchParams.set("limit", String(SEARCH_RESULT_LIMIT));
+              url.searchParams.set("accept-language", "zh-CN");
+              url.searchParams.set("q", searchQ);
+              const res2 = await fetch(url.toString());
+              if (res2.ok) {
+                const list = (await res2.json()) as NominatimSearchItem[];
+                if (Array.isArray(list)) {
+                  const fromSearch = list.map((it) => simplifyLocation(it)).filter(Boolean);
+                  merged = dedupeStringsPreserveOrder(
+                    [...merged, ...fromSearch],
+                    NEARBY_MERGED_CAP
+                  );
+                }
+              }
+            } catch {
+              /* 补充列表失败时仅保留逆地理结果 */
+            }
+          }
+
+          setNearbyOptions(merged);
+          if (merged[0] && !selected) setSelected(merged[0]);
         } catch {
           setError("定位成功，但地址解析失败");
         } finally {
@@ -124,7 +169,7 @@ export default function LocationPicker({
         const url = new URL("https://nominatim.openstreetmap.org/search");
         url.searchParams.set("format", "jsonv2");
         url.searchParams.set("addressdetails", "1");
-        url.searchParams.set("limit", "6");
+        url.searchParams.set("limit", String(SEARCH_RESULT_LIMIT));
         url.searchParams.set("accept-language", "zh-CN");
         url.searchParams.set("q", q);
         const res = await fetch(url.toString());
@@ -149,12 +194,14 @@ export default function LocationPicker({
       seen.add(text);
       list.push(text);
     }
-    return list.slice(0, 6);
+    return list.slice(0, SEARCH_RESULT_LIMIT);
   }, [searchItems]);
 
   const allOptions = useMemo(() => {
-    const combined = [...nearbyOptions, ...dedupSearch].filter(Boolean);
-    return Array.from(new Set(combined)).slice(0, 10);
+    return dedupeStringsPreserveOrder(
+      [...nearbyOptions, ...dedupSearch],
+      TOTAL_OPTIONS_CAP
+    );
   }, [nearbyOptions, dedupSearch]);
 
   function applySelection() {
@@ -209,7 +256,7 @@ export default function LocationPicker({
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜索地点（至少 2 个字）"
+              placeholder="搜索地点（至少 2 个字，可展开更多结果）"
               className="w-full max-w-xs rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
             />
             <button
@@ -229,29 +276,42 @@ export default function LocationPicker({
           )}
           {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
 
-          <div className="max-h-44 overflow-auto rounded-lg border border-zinc-200 bg-white/90 p-1 dark:border-zinc-700 dark:bg-zinc-900/90">
-            {allOptions.length === 0 ? (
-              <p className="px-2 py-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-                暂无候选地点，可继续搜索
+          <div className="rounded-lg border border-zinc-200 bg-white/90 dark:border-zinc-700 dark:bg-zinc-900/90">
+            {allOptions.length > 0 && (
+              <p className="border-b border-zinc-100 px-2 py-1.5 text-[0.65rem] text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+                共 {allOptions.length} 条，在此区域上下滑动选择
               </p>
-            ) : (
-              allOptions.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => {
-                    setSelected(item);
-                  }}
-                  className={`block w-full rounded px-2 py-1.5 text-left text-xs ${
-                    selected === item
-                      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
-                      : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                  }`}
-                >
-                  {item}
-                </button>
-              ))
             )}
+            <div
+              className={`max-h-[min(22rem,50vh)] overflow-y-auto overscroll-contain p-1 scroll-smooth ${
+                allOptions.length > 0 ? "min-h-[8rem]" : ""
+              }`}
+              role="listbox"
+              aria-label="地点候选列表"
+            >
+              {allOptions.length === 0 ? (
+                <p className="px-2 py-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                  暂无候选地点，可继续搜索
+                </p>
+              ) : (
+                allOptions.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    role="option"
+                    aria-selected={selected === item}
+                    onClick={() => setSelected(item)}
+                    className={`block w-full rounded px-2 py-2 text-left text-xs leading-snug ${
+                      selected === item
+                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+                        : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    }`}
+                  >
+                    {item}
+                  </button>
+                ))
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
