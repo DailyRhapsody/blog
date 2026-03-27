@@ -860,7 +860,7 @@ export default function EntriesPage() {
                         {profile?.name ?? "DailyRhapsody"}
                       </p>
                     </Link>
-                    <p className="mt-3 text-xs text-white/80">
+                    <p className="mt-4 text-xs text-white/80">
                       {profile?.signature ?? "君子论迹不论心"}
                     </p>
                     <div className="mt-4 flex flex-wrap gap-2">
