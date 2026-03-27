@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { formatDate12h } from "@/lib/format";
 import { markdownPreviewProseClass, renderMarkdown } from "@/lib/markdown";
+import { createShareCardElement } from "@/lib/share-card";
 
 type Diary = {
   id: number;
@@ -278,53 +279,122 @@ function EntryCard({
   avatarSrc: string;
   canEdit: boolean;
 }) {
-  const ref = useRef<HTMLElement | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [sharePreviewSrc, setSharePreviewSrc] = useState<string | null>(null);
+  const [shareModalError, setShareModalError] = useState<string | null>(null);
+  const shareUrlRef = useRef("");
 
-  async function runShare() {
-    const article = ref.current;
-    if (!article || sharing) return;
-    setSharing(true);
-    setMenuOpen(false);
+  const closeShareModal = useCallback(() => {
+    setShareModalOpen(false);
+    setSharePreviewSrc(null);
+    setShareModalError(null);
+  }, []);
+
+  useEffect(() => {
+    if (!shareModalOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") closeShareModal();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [shareModalOpen, closeShareModal]);
+
+  async function copyShareUrl(shareUrl: string) {
     try {
+      await navigator.clipboard.writeText(shareUrl);
+    } catch {
+      window.prompt("复制以下链接分享：", shareUrl);
+    }
+  }
+
+  async function openShareImageModal() {
+    if (typeof window === "undefined") return;
+    const shareUrl = `${window.location.origin}${window.location.pathname}#entry-${item.id}`;
+    shareUrlRef.current = shareUrl;
+    setMenuOpen(false);
+    setShareModalOpen(true);
+    setSharePreviewSrc(null);
+    setShareModalError(null);
+    setSharing(true);
+
+    const host = document.createElement("div");
+    host.setAttribute("aria-hidden", "true");
+    host.style.cssText =
+      "position:fixed;left:-9999px;top:0;overflow:visible;opacity:1;pointer-events:none;z-index:-1";
+
+    const card = createShareCardElement({
+      summary: item.summary,
+      date: item.date,
+      publishedAt: item.publishedAt,
+      entryId: item.id,
+      authorName,
+    });
+    host.appendChild(card);
+    document.body.appendChild(host);
+
+    try {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       const { default: html2canvas } = await import("html2canvas");
-      const canvas = await html2canvas(article, {
-        scale: 2,
+      const canvas = await html2canvas(card, {
+        scale: 3,
         useCORS: true,
         logging: false,
-        backgroundColor: undefined,
+        backgroundColor: "#F7F8FA",
       });
-      const blob = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob(resolve, "image/png", 0.95)
-      );
-      if (!blob) throw new Error("生成图片失败");
-      const file = new File([blob], "snapshot.png", { type: "image/png" });
+      setSharePreviewSrc(canvas.toDataURL("image/png", 0.95));
+    } catch (err) {
+      if ((err as Error).name !== "AbortError") console.error(err);
+      setShareModalError("生成图片失败，请稍后重试");
+    } finally {
+      host.remove();
+      setSharing(false);
+    }
+  }
+
+  async function shareImageFromPreview() {
+    const src = sharePreviewSrc;
+    if (!src) return;
+    try {
+      const res = await fetch(src);
+      const blob = await res.blob();
+      const file = new File([blob], "DailyRhapsody.png", { type: "image/png" });
+      const shareUrl = shareUrlRef.current;
       if (navigator.share && navigator.canShare?.({ files: [file] })) {
         await navigator.share({
           files: [file],
           title: "DailyRhapsody",
           text: "分享自 DailyRhapsody",
+          url: shareUrl,
         });
-      } else if (navigator.share) {
-        await navigator.share({
-          title: "DailyRhapsody",
-          text: "分享自 DailyRhapsody",
-          url: typeof window !== "undefined" ? window.location.href : "",
-        });
-      } else {
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = "snapshot.png";
-        a.click();
-        URL.revokeObjectURL(a.href);
       }
-    } catch (err) {
-      if ((err as Error).name !== "AbortError") console.error(err);
-    } finally {
-      setSharing(false);
+    } catch (e) {
+      if ((e as Error).name !== "AbortError") await copyShareUrl(shareUrlRef.current);
     }
+  }
+
+  function downloadShareImage() {
+    if (!sharePreviewSrc) return;
+    const a = document.createElement("a");
+    a.href = sharePreviewSrc;
+    a.download = "DailyRhapsody.png";
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  function handleShare() {
+    if (sharing) return;
+    if (typeof window === "undefined") return;
+    void openShareImageModal();
   }
 
   const timeStr = formatDate12h(
@@ -335,9 +405,10 @@ function EntryCard({
     : "";
 
   return (
+    <>
     <article
-      ref={ref}
-      className="group relative flex flex-col gap-3 rounded-2xl px-3 py-4 transition-apple hover:bg-zinc-100/70 hover:shadow-md dark:hover:bg-zinc-900/80 dark:hover:shadow-black/10"
+      id={`entry-${item.id}`}
+      className="group relative flex flex-col gap-3 rounded-2xl px-3 py-4 transition-apple scroll-mt-24 hover:bg-zinc-100/70 hover:shadow-md dark:hover:bg-zinc-900/80 dark:hover:shadow-black/10"
     >
       <div className="flex items-start gap-3">
         <DefaultAvatar src={avatarSrc} className="h-10 w-10 shrink-0" />
@@ -391,7 +462,7 @@ function EntryCard({
                 </button>
                 <button
                   type="button"
-                  onClick={runShare}
+                  onClick={() => handleShare()}
                   disabled={sharing}
                   className="w-full px-3 py-2 text-left text-[0.8rem] text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 >
@@ -456,6 +527,111 @@ function EntryCard({
         />
       </div>
     </article>
+
+    {shareModalOpen && (
+      <div
+        className="fixed inset-0 z-[200] flex items-center justify-center bg-black/45 p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="share-modal-title"
+      >
+        <button
+          type="button"
+          className="absolute inset-0 cursor-default border-0 bg-transparent"
+          aria-label="关闭浮层"
+          onClick={closeShareModal}
+        />
+        <div
+          className="relative z-10 flex max-h-[min(92vh,900px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-zinc-900 dark:ring-1 dark:ring-zinc-700"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
+            <h2
+              id="share-modal-title"
+              className="text-base font-semibold text-zinc-900 dark:text-zinc-50"
+            >
+              生成分享图片
+            </h2>
+            <button
+              type="button"
+              onClick={closeShareModal}
+              className="rounded-full p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              aria-label="关闭"
+            >
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <p className="px-4 pt-3 text-xs text-zinc-500 dark:text-zinc-400">
+            请右键点击图片保存或复制；触屏设备可使用下方「下载图片」。
+          </p>
+          <div className="flex min-h-[120px] flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-4">
+            {sharing && !sharePreviewSrc && !shareModalError && (
+              <div className="flex flex-col items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
+                <svg
+                  className="h-8 w-8 animate-spin text-zinc-400"
+                  viewBox="0 0 24 24"
+                  aria-hidden
+                >
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="9"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeDasharray="32 24"
+                  />
+                </svg>
+                <span>正在生成…</span>
+              </div>
+            )}
+            {shareModalError && (
+              <p className="text-center text-sm text-red-600 dark:text-red-400">{shareModalError}</p>
+            )}
+            {sharePreviewSrc && (
+              // data URL 预览，不用 next/image
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={sharePreviewSrc}
+                alt="分享卡片预览"
+                className="max-h-[min(60vh,520px)] max-w-full select-none rounded-lg shadow-md"
+              />
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 border-t border-zinc-200 px-4 py-3 dark:border-zinc-700">
+            <button
+              type="button"
+              onClick={downloadShareImage}
+              disabled={!sharePreviewSrc}
+              className="rounded-lg bg-zinc-900 px-3 py-2 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            >
+              下载图片
+            </button>
+            {typeof navigator !== "undefined" && typeof navigator.share === "function" && (
+              <button
+                type="button"
+                onClick={() => void shareImageFromPreview()}
+                disabled={!sharePreviewSrc}
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+              >
+                系统分享…
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => void copyShareUrl(shareUrlRef.current)}
+              className="rounded-lg px-3 py-2 text-xs text-zinc-600 underline-offset-2 hover:underline dark:text-zinc-400"
+            >
+              复制文章链接
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 
@@ -619,6 +795,18 @@ export default function EntriesPage() {
       })
       .finally(() => setLoading(false));
   }, [selectedTag, loadPage]);
+
+  useEffect(() => {
+    if (loading || typeof window === "undefined") return;
+    const anchor = window.location.hash.replace(/^#/, "");
+    if (!anchor.startsWith("entry-")) return;
+    requestAnimationFrame(() => {
+      document.getElementById(anchor)?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      });
+    });
+  }, [loading, items]);
 
   useEffect(() => {
     fetch("/api/profile")
