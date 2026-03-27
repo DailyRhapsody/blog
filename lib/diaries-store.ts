@@ -68,14 +68,20 @@ async function ensureSchema(): Promise<void> {
         `);
         await client.query(`
           CREATE INDEX IF NOT EXISTS idx_diaries_sort
-          ON diaries (pinned DESC, COALESCE(published_at, date::timestamp) DESC);
+          ON diaries (pinned DESC, published_at DESC, date DESC);
         `);
       } finally {
         client.release();
       }
     })();
   }
-  await schemaReady;
+  try {
+    await schemaReady;
+  } catch (error) {
+    // Allow next request to retry schema initialization after a failed attempt.
+    schemaReady = null;
+    throw error;
+  }
 }
 
 function normalizeStringArray(value: unknown): string[] {

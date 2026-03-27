@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "vercel:env": "vercel env pull .env.local"
+    "vercel:env": "npx vercel env pull .env.local"
   },
   "dependencies": {
     "@vercel/blob": "^2.3.0",
@@ -26,7 +26,6 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
-    "typescript": "^5",
-    "vercel": "^50.23.2"
+    "typescript": "^5"
   }
 }
