@@ -2,6 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 
 function LoginForm() {
   const [password, setPassword] = useState("");
@@ -68,12 +69,12 @@ function LoginForm() {
         >
           {loading ? "登录中…" : "登录"}
         </button>
-        <a
+        <Link
           href="/"
           className="mt-4 block text-center text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-400"
         >
           返回首页
-        </a>
+        </Link>
       </form>
     </div>
   );

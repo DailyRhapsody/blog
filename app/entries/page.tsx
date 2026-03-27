@@ -34,19 +34,6 @@ type Profile = {
   headerBg: string;
 };
 
-function getTagCounts(diaries: { tags?: string[] }[]) {
-  const count = new Map<string, number>();
-  for (const d of diaries) {
-    const tags = d.tags ?? [];
-    for (const t of tags) {
-      count.set(t, (count.get(t) ?? 0) + 1);
-    }
-  }
-  return Array.from(count.entries())
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => b.value - a.value);
-}
-
 function getSizeClass(count: number, maxCount: number) {
   if (maxCount <= 0) return "text-xs";
   const r = count / maxCount;
@@ -277,10 +264,12 @@ function EntryCard({
   item,
   authorName,
   avatarSrc,
+  canEdit,
 }: {
   item: Diary;
   authorName: string;
   avatarSrc: string;
+  canEdit: boolean;
 }) {
   const ref = useRef<HTMLElement | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -374,6 +363,15 @@ function EntryCard({
                 onClick={() => setMenuOpen(false)}
               />
               <div className="absolute right-0 top-full z-50 mt-1 min-w-[6rem] rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+                {canEdit && (
+                  <Link
+                    href={`/admin/diaries/${item.id}/edit`}
+                    className="block w-full px-3 py-2 text-left text-[0.8rem] text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    编辑
+                  </Link>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -461,6 +459,7 @@ export default function EntriesPage() {
   const [datesFromApi, setDatesFromApi] = useState<string[]>([]);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [isAdminSession, setIsAdminSession] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [entriesFlipped, setEntriesFlipped] = useState(false);
@@ -472,8 +471,6 @@ export default function EntriesPage() {
   const [headerExpandProgress, setHeaderExpandProgress] = useState<number | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const contentWrapperRef = useRef<HTMLDivElement>(null);
-  const returningToTopRef = useRef(false);
-  const headerCollapsedRef = useRef(false);
   const returnToTopPhaseRef = useRef<0 | 1 | 2>(0);
   const returnToTopRafRef = useRef<number>(0);
   const returnToTopProgressRef = useRef<number>(0);
@@ -488,9 +485,12 @@ export default function EntriesPage() {
   const totalPosts = total;
   const currentEntries = items;
   const hasMore = items.length < total && total > 0;
-  hasMoreRef.current = hasMore;
-  totalPostsRef.current = totalPosts;
   const maxTagCount = tagCounts[0]?.value ?? 1;
+
+  useEffect(() => {
+    hasMoreRef.current = hasMore;
+    totalPostsRef.current = totalPosts;
+  }, [hasMore, totalPosts]);
 
   const runReturnToTop = useCallback(() => {
     if (typeof window === "undefined" || !contentWrapperRef.current) return;
@@ -550,7 +550,6 @@ export default function EntriesPage() {
             setHeaderExpandProgress(null);
             headerExpandProgressRef.current = 0;
             returnToTopPhaseRef.current = 0;
-            returningToTopRef.current = false;
           }
         }
         returnToTopRafRef.current = requestAnimationFrame(expandTick);
@@ -565,7 +564,6 @@ export default function EntriesPage() {
     function onScroll() {
       if (returnToTopPhaseRef.current !== 0) return;
       const y = typeof window !== "undefined" ? window.scrollY : 0;
-      if (y < 2) returningToTopRef.current = false;
       setScrollY(y);
     }
     onScroll();
@@ -607,7 +605,6 @@ export default function EntriesPage() {
   );
 
   useEffect(() => {
-    setLoading(true);
     loadPage(0, false, selectedTag).finally(() => setLoading(false));
   }, [selectedTag, loadPage]);
 
@@ -616,6 +613,15 @@ export default function EntriesPage() {
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => setProfile(data ?? null))
       .catch(() => setProfile(null));
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/auth/session")
+      .then((res) => (res.ok ? res.json() : { ok: false }))
+      .then((data: { ok?: boolean }) => {
+        setIsAdminSession(!!data?.ok);
+      })
+      .catch(() => setIsAdminSession(false));
   }, []);
 
   useEffect(() => {
@@ -724,6 +730,7 @@ export default function EntriesPage() {
   }, []);
 
   const handleTagClick = (tag: string) => {
+    setLoading(true);
     setSelectedTag((prev) => (prev === tag ? null : tag));
   };
 
@@ -740,41 +747,31 @@ export default function EntriesPage() {
             const HEADER_COLLAPSED = 56;
             const threshold = HEADER_EXPANDED - HEADER_COLLAPSED;
             const COLLAPSE_AT = threshold + 10;
-            const EXPAND_AT = threshold - 10;
             const nearTop = scrollY < 28;
             const isReturning = isReturnToTopAnimating || returnToTopProgress !== null;
             const isHeaderExpanding = headerExpandProgress !== null;
-            const expandProgress = isHeaderExpanding
-              ? (headerExpandProgressRef.current ?? headerExpandProgress ?? 0)
-              : 0;
-            const progress = isReturning ? (returnToTopProgressRef.current ?? returnToTopProgress ?? 0) : 0;
+            const expandProgress = isHeaderExpanding ? (headerExpandProgress ?? 0) : 0;
             // 回顶过程中 header 保持收缩；到顶后按与回顶相同的 easeOutQuart 曲线展开
             const height =
               isHeaderExpanding
                 ? HEADER_COLLAPSED + (HEADER_EXPANDED - HEADER_COLLAPSED) * expandProgress
                 : isReturning
                   ? HEADER_COLLAPSED
-                  : returningToTopRef.current || nearTop
+                  : nearTop
                     ? HEADER_EXPANDED
                     : Math.max(HEADER_COLLAPSED, HEADER_EXPANDED - scrollY);
             let isCollapsed: boolean;
             if (isHeaderExpanding) {
               isCollapsed = expandProgress < 1;
-            } else if (isReturning || returningToTopRef.current) {
-              isCollapsed = isReturning ? true : false;
-            } else if (scrollY >= COLLAPSE_AT) {
+            } else if (isReturning) {
               isCollapsed = true;
-              headerCollapsedRef.current = true;
-            } else if (scrollY < EXPAND_AT) {
-              isCollapsed = false;
-              headerCollapsedRef.current = false;
             } else {
-              isCollapsed = headerCollapsedRef.current;
+              isCollapsed = scrollY >= COLLAPSE_AT;
             }
             return (
               <header
                 className={`sticky top-0 z-30 w-full overflow-hidden rounded-b-2xl bg-gradient-to-b from-zinc-900 via-zinc-800 to-black transition-[height] ease-out ${
-                  isReturning || isHeaderExpanding ? "duration-0" : returningToTopRef.current ? "duration-[420ms]" : "duration-250"
+                  isReturning || isHeaderExpanding ? "duration-0" : "duration-250"
                 }`}
                 style={{
                   height: `${height}px`,
@@ -960,6 +957,7 @@ export default function EntriesPage() {
                   item={item}
                   authorName={profile?.name ?? "DailyRhapsody"}
                   avatarSrc={profile?.avatar ?? "/avatar.png"}
+                  canEdit={isAdminSession}
                 />
               ))}
             {hasMore && !loading && <div ref={sentinelRef} className="h-4" aria-hidden />}

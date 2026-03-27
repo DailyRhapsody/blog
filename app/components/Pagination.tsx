@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 /**
  * 与之前浏览页一致的翻页组件：上一页、第 n 页（圆角数字框）、下一页；
@@ -17,22 +17,12 @@ export default function Pagination({
   totalPosts: number;
   onPageChange: (page: number) => void;
 }) {
-  const [inputPage, setInputPage] = useState(stringifyPage(page));
-
-  useEffect(() => {
-    setInputPage(stringifyPage(page));
-  }, [page]);
-
-  useEffect(() => {
-    if (page > totalPages && totalPages >= 1) {
-      onPageChange(totalPages);
-      setInputPage(String(totalPages));
-    }
-  }, [totalPages, page, onPageChange]);
-
   function stringifyPage(p: number) {
     return String(Math.max(1, Math.min(totalPages || 1, p)));
   }
+
+  const [inputPage, setInputPage] = useState("");
+  const displayPage = inputPage === "" ? stringifyPage(page) : inputPage;
 
   const applyPageInput = (raw: string) => {
     const target = Number(raw);
@@ -42,7 +32,7 @@ export default function Pagination({
     }
     const next = Math.min(Math.max(1, target), totalPages);
     onPageChange(next);
-    setInputPage(String(next));
+    setInputPage("");
   };
 
   const canPrev = page > 1;
@@ -54,9 +44,7 @@ export default function Pagination({
         type="button"
         onClick={() => {
           if (canPrev) {
-            const next = page - 1;
-            onPageChange(next);
-            setInputPage(String(next));
+            onPageChange(page - 1);
           }
         }}
         disabled={!canPrev}
@@ -71,13 +59,13 @@ export default function Pagination({
           type="number"
           min={1}
           max={Math.max(1, totalPages)}
-          value={inputPage}
+          value={displayPage}
           onChange={(e) => setInputPage(e.target.value)}
-          onBlur={() => applyPageInput(inputPage)}
+          onBlur={() => applyPageInput(displayPage)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
-              applyPageInput(inputPage);
+              applyPageInput(displayPage);
             }
           }}
           className="pagination-page-input flex h-7 w-14 items-center justify-center rounded-full border border-zinc-300 bg-transparent px-2 text-center text-[0.8rem] leading-none outline-none transition-apple focus:border-zinc-500 focus:ring-2 focus:ring-zinc-400/30 dark:border-zinc-700 dark:focus:border-zinc-400"
@@ -93,9 +81,7 @@ export default function Pagination({
         type="button"
         onClick={() => {
           if (canNext) {
-            const next = page + 1;
-            onPageChange(next);
-            setInputPage(String(next));
+            onPageChange(page + 1);
           }
         }}
         disabled={!canNext}

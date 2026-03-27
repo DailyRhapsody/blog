@@ -193,7 +193,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     load(page, searchQuery);
-  }, [page]);
+  }, [load, page, searchQuery]);
 
   useEffect(() => {
     fetch("/api/profile")

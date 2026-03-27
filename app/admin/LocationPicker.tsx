@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type NominatimSearchItem = {
   display_name: string;
@@ -52,10 +52,56 @@ export default function LocationPicker({
     }
   }, [value, open]);
 
+  const locateNow = useCallback(async () => {
+    if (!navigator.geolocation) {
+      setError("当前浏览器不支持定位");
+      return;
+    }
+    setLocating(true);
+    setError("");
+    setNearbyOptions([]);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const url = new URL("https://nominatim.openstreetmap.org/reverse");
+          url.searchParams.set("format", "jsonv2");
+          url.searchParams.set("addressdetails", "1");
+          url.searchParams.set("accept-language", "zh-CN");
+          url.searchParams.set("lat", String(pos.coords.latitude));
+          url.searchParams.set("lon", String(pos.coords.longitude));
+          const res = await fetch(url.toString());
+          if (!res.ok) throw new Error(String(res.status));
+          const data = (await res.json()) as NominatimSearchItem;
+          const addr = data.address ?? {};
+          const city = addr.city || addr.town || addr.village || addr.county || addr.state || "";
+          const area = addr.suburb || addr.neighbourhood || "";
+          const road = addr.road || "";
+          const options = [
+            [city, area].filter(Boolean).join("·"),
+            [city, area, road].filter(Boolean).join("·"),
+            simplifyLocation(data),
+          ].filter(Boolean);
+          const unique = Array.from(new Set(options));
+          setNearbyOptions(unique);
+          if (unique[0] && !selected) setSelected(unique[0]);
+        } catch {
+          setError("定位成功，但地址解析失败");
+        } finally {
+          setLocating(false);
+        }
+      },
+      () => {
+        setLocating(false);
+        setError("定位失败，请检查浏览器定位权限");
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }, [selected]);
+
   useEffect(() => {
     if (!open) return;
     void locateNow();
-  }, [open]);
+  }, [locateNow, open]);
 
   function openPicker() {
     setOpen(true);
@@ -110,52 +156,6 @@ export default function LocationPicker({
     const combined = [...nearbyOptions, ...dedupSearch].filter(Boolean);
     return Array.from(new Set(combined)).slice(0, 10);
   }, [nearbyOptions, dedupSearch]);
-
-  async function locateNow() {
-    if (!navigator.geolocation) {
-      setError("当前浏览器不支持定位");
-      return;
-    }
-    setLocating(true);
-    setError("");
-    setNearbyOptions([]);
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        try {
-          const url = new URL("https://nominatim.openstreetmap.org/reverse");
-          url.searchParams.set("format", "jsonv2");
-          url.searchParams.set("addressdetails", "1");
-          url.searchParams.set("accept-language", "zh-CN");
-          url.searchParams.set("lat", String(pos.coords.latitude));
-          url.searchParams.set("lon", String(pos.coords.longitude));
-          const res = await fetch(url.toString());
-          if (!res.ok) throw new Error(String(res.status));
-          const data = (await res.json()) as NominatimSearchItem;
-          const addr = data.address ?? {};
-          const city = addr.city || addr.town || addr.village || addr.county || addr.state || "";
-          const area = addr.suburb || addr.neighbourhood || "";
-          const road = addr.road || "";
-          const options = [
-            [city, area].filter(Boolean).join("·"),
-            [city, area, road].filter(Boolean).join("·"),
-            simplifyLocation(data),
-          ].filter(Boolean);
-          const unique = Array.from(new Set(options));
-          setNearbyOptions(unique);
-          if (unique[0] && !selected) setSelected(unique[0]);
-        } catch {
-          setError("定位成功，但地址解析失败");
-        } finally {
-          setLocating(false);
-        }
-      },
-      () => {
-        setLocating(false);
-        setError("定位失败，请检查浏览器定位权限");
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
-  }
 
   function applySelection() {
     const finalValue = selected.trim();
