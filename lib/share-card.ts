@@ -8,9 +8,11 @@ export type ShareCardInput = {
   publishedAt?: string;
   entryId: number;
   authorName: string;
+  tags?: string[];
 };
 
 const CARD_WIDTH_PX = 340;
+const DEFAULT_SHARE_AUTHOR_LABEL = "DailyRhapsody";
 
 function escapeHtml(s: string): string {
   return s
@@ -66,7 +68,9 @@ export function getCardDateParts(
 export function createShareCardElement(props: ShareCardInput): HTMLDivElement {
   const body = summaryToPlainForCard(props.summary);
   const { day, yearMonth } = getCardDateParts(props.date, props.publishedAt);
-  const author = escapeHtml(props.authorName.trim() || "DailyRhapsody");
+  const authorTrimmed = props.authorName.trim();
+  const showAuthorLine =
+    authorTrimmed.length > 0 && authorTrimmed !== DEFAULT_SHARE_AUTHOR_LABEL;
   const bodyHtml = escapeHtml(body).replace(/\n/g, "<br/>");
   const subtitle = `Chapter. ${props.entryId}`;
 
@@ -76,7 +80,7 @@ export function createShareCardElement(props: ShareCardInput): HTMLDivElement {
     "box-sizing:border-box",
     `width:${CARD_WIDTH_PX}px`,
     "padding:36px 34px 30px",
-    "background:linear-gradient(180deg,#faf7f8 0%,#f7f8fa 42%,#eff2f6 100%)",
+    "background:linear-gradient(180deg,#FDF7F7 0%,#FAF8F7 35%,#F4F6F6 70%,#F0F4F4 100%)",
     'font-family:system-ui,-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif',
     "-webkit-font-smoothing:antialiased",
     "color:#333333",
@@ -85,16 +89,38 @@ export function createShareCardElement(props: ShareCardInput): HTMLDivElement {
   const dateBox = document.createElement("div");
   dateBox.style.cssText = [
     "box-sizing:border-box",
+    "position:relative",
     "width:56px",
+    "height:52px",
     "border:1px solid #dddddd",
-    "text-align:center",
-    "padding:8px 4px 10px",
-    "background:rgba(255,255,255,0.35)",
+    "padding:0 4px",
+    "background:rgba(255,255,255,0.38)",
+    "overflow:hidden",
   ].join(";");
-  dateBox.innerHTML = `
-    <div style="font-size:26px;font-weight:700;line-height:1;color:#333333;letter-spacing:-0.02em">${escapeHtml(day)}</div>
-    <div style="margin-top:4px;font-size:11px;font-weight:400;color:#888888;line-height:1.2">${escapeHtml(yearMonth)}</div>
-  `;
+
+  const dateInner = document.createElement("div");
+  dateInner.style.cssText = [
+    "position:absolute",
+    "left:50%",
+    "top:50%",
+    "transform:translate(-50%,calc(-50% - 8px))",
+    "text-align:center",
+    "white-space:nowrap",
+  ].join(";");
+
+  const dayEl = document.createElement("div");
+  dayEl.textContent = day;
+  dayEl.style.cssText =
+    "font-size:26px;font-weight:700;line-height:26px;color:#333333;letter-spacing:-0.02em";
+
+  const monthEl = document.createElement("div");
+  monthEl.textContent = yearMonth;
+  monthEl.style.cssText =
+    "font-size:11px;font-weight:400;color:#888888;line-height:13px;margin-top:2px";
+
+  dateInner.appendChild(dayEl);
+  dateInner.appendChild(monthEl);
+  dateBox.appendChild(dateInner);
 
   const main = document.createElement("div");
   main.style.cssText = [
@@ -107,42 +133,97 @@ export function createShareCardElement(props: ShareCardInput): HTMLDivElement {
   ].join(";");
   main.innerHTML = bodyHtml;
 
+  const tags = (props.tags ?? [])
+    .map((t) => String(t).trim())
+    .filter((t) => t.length > 0);
+  let tagRow: HTMLDivElement | null = null;
+  if (tags.length > 0) {
+    tagRow = document.createElement("div");
+    tagRow.style.cssText = [
+      "margin-top:14px",
+      "display:flex",
+      "flex-wrap:wrap",
+      "gap:6px",
+      "align-items:center",
+    ].join(";");
+    for (let i = 0; i < tags.length; i++) {
+      const tagText = tags[i];
+      const chip = document.createElement("span");
+      chip.style.cssText = [
+        "display:inline-block",
+        "position:relative",
+        "box-sizing:border-box",
+        "height:24px",
+        "min-width:32px",
+        "padding:0 10px",
+        "background:rgba(228,228,231,0.85)",
+        "border-radius:9999px",
+        "vertical-align:middle",
+      ].join(";");
+      const inner = document.createElement("span");
+      inner.textContent = tagText;
+      inner.style.cssText = [
+        "position:absolute",
+        "left:50%",
+        "top:50%",
+        "transform:translate(-50%,calc(-50% - 7px))",
+        "font-size:11px",
+        "font-weight:500",
+        "color:#52525b",
+        "white-space:nowrap",
+        "line-height:11px",
+      ].join(";");
+      chip.appendChild(inner);
+      tagRow.appendChild(chip);
+    }
+  }
+
   const hr = document.createElement("div");
-  hr.style.cssText = "margin:26px 0 0;height:1px;background:#dddddd;width:100%";
+  hr.style.cssText = tagRow
+    ? "margin:18px 0 0;height:1px;background:#dddddd;width:100%"
+    : "margin:26px 0 0;height:1px;background:#dddddd;width:100%";
 
   const footer = document.createElement("div");
-  footer.style.cssText = [
-    "margin-top:18px",
+  footer.style.marginTop = "18px";
+
+  const authorLine = document.createElement("div");
+  authorLine.style.cssText =
+    "font-size:14px;font-weight:600;color:#a3a3a3;line-height:1.35;margin-bottom:8px";
+  authorLine.textContent = authorTrimmed;
+
+  const footerBottomRow = document.createElement("div");
+  footerBottomRow.style.cssText = [
     "display:flex",
     "flex-direction:row",
     "justify-content:space-between",
-    "align-items:flex-end",
+    "align-items:baseline",
     "gap:12px",
   ].join(";");
 
-  const left = document.createElement("div");
-  left.style.cssText = "min-width:0;flex:1";
-  left.innerHTML = `
-    <div style="font-size:14px;font-weight:600;color:#666666;line-height:1.3">${author}</div>
-    <div style="margin-top:6px;font-size:11px;font-weight:400;color:#888888;line-height:1.3">${escapeHtml(subtitle)}</div>
-  `;
+  const chapterEl = document.createElement("span");
+  chapterEl.textContent = subtitle;
+  chapterEl.style.cssText =
+    "font-size:11px;font-weight:400;color:#b8b8b8;line-height:1.35;flex:1;min-width:0";
 
-  const brand = document.createElement("div");
+  const brand = document.createElement("span");
   brand.textContent = "DailyRhapsody";
   brand.style.cssText = [
     "flex-shrink:0",
     "font-size:13px",
     "font-weight:700",
-    "color:#666666",
-    "line-height:1.2",
+    "color:#a8a8a8",
+    "line-height:1.35",
     "letter-spacing:-0.02em",
   ].join(";");
 
-  footer.appendChild(left);
-  footer.appendChild(brand);
+  footerBottomRow.appendChild(chapterEl);
+  footerBottomRow.appendChild(brand);
+  if (showAuthorLine) footer.appendChild(authorLine);
+  footer.appendChild(footerBottomRow);
 
   root.appendChild(dateBox);
   root.appendChild(main);
+  if (tagRow) root.appendChild(tagRow);
   root.appendChild(hr);
   root.appendChild(footer);
 

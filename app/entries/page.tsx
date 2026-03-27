@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
 import Link from "next/link";
 import { formatDate12h } from "@/lib/format";
@@ -25,6 +26,23 @@ type Comment = {
 };
 
 const PAGE_SIZE = 30;
+
+function legacyCopyTextToClipboard(text: string): boolean {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly", "");
+  ta.style.cssText = "position:fixed;left:-9999px;top:0";
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {
+    ok = false;
+  }
+  ta.remove();
+  return ok;
+}
 
 type Profile = {
   name: string;
@@ -83,7 +101,7 @@ function DefaultAvatar({
 
 const MAX_SUMMARY_LINES = 5;
 
-/** 本月日历热力图：仅方块，始终当前月，有发布的日期高亮 */
+/** 本月日历热力图：仅方块，始终当前月，有发布的日期高亮；列顺序为周一至周日 */
 const CalendarHeatmap = memo(function CalendarHeatmap({ datesWithPosts }: { datesWithPosts: Set<string> }) {
   const now = new Date();
   const y = now.getFullYear();
@@ -91,10 +109,12 @@ const CalendarHeatmap = memo(function CalendarHeatmap({ datesWithPosts }: { date
   const firstDay = new Date(y, m, 1);
   const lastDay = new Date(y, m + 1, 0);
   const startWeekday = firstDay.getDay();
+  /** 首列对应周一：JS getDay 0=周日 → 周一占位索引为 (d+6)%7 */
+  const leadingBlanks = (startWeekday + 6) % 7;
   const daysInMonth = lastDay.getDate();
   const weeks: (number | null)[][] = [];
   let week: (number | null)[] = [];
-  for (let i = 0; i < startWeekday; i++) week.push(null);
+  for (let i = 0; i < leadingBlanks; i++) week.push(null);
   for (let d = 1; d <= daysInMonth; d++) {
     week.push(d);
     if (week.length === 7) {
@@ -285,12 +305,19 @@ function EntryCard({
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [sharePreviewSrc, setSharePreviewSrc] = useState<string | null>(null);
   const [shareModalError, setShareModalError] = useState<string | null>(null);
+  const [copyLinkHint, setCopyLinkHint] = useState<"ok" | "fail" | null>(null);
+  const copyLinkHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shareUrlRef = useRef("");
 
   const closeShareModal = useCallback(() => {
     setShareModalOpen(false);
     setSharePreviewSrc(null);
     setShareModalError(null);
+    setCopyLinkHint(null);
+    if (copyLinkHintTimerRef.current) {
+      clearTimeout(copyLinkHintTimerRef.current);
+      copyLinkHintTimerRef.current = null;
+    }
   }, []);
 
   useEffect(() => {
@@ -308,11 +335,26 @@ function EntryCard({
   }, [shareModalOpen, closeShareModal]);
 
   async function copyShareUrl(shareUrl: string) {
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-    } catch {
-      window.prompt("复制以下链接分享：", shareUrl);
+    const trimmed = shareUrl.trim();
+    if (copyLinkHintTimerRef.current) {
+      clearTimeout(copyLinkHintTimerRef.current);
+      copyLinkHintTimerRef.current = null;
     }
+    if (!trimmed) {
+      setCopyLinkHint("fail");
+      copyLinkHintTimerRef.current = setTimeout(() => setCopyLinkHint(null), 2600);
+      return;
+    }
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(trimmed);
+      ok = true;
+    } catch {
+      ok = legacyCopyTextToClipboard(trimmed);
+      if (!ok) window.prompt("复制以下链接分享：", trimmed);
+    }
+    setCopyLinkHint(ok ? "ok" : "fail");
+    copyLinkHintTimerRef.current = setTimeout(() => setCopyLinkHint(null), 2600);
   }
 
   async function openShareImageModal() {
@@ -336,6 +378,7 @@ function EntryCard({
       publishedAt: item.publishedAt,
       entryId: item.id,
       authorName,
+      tags: item.tags,
     });
     host.appendChild(card);
     document.body.appendChild(host);
@@ -528,109 +571,119 @@ function EntryCard({
       </div>
     </article>
 
-    {shareModalOpen && (
-      <div
-        className="fixed inset-0 z-[200] flex items-center justify-center bg-black/45 p-4"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="share-modal-title"
-      >
-        <button
-          type="button"
-          className="absolute inset-0 cursor-default border-0 bg-transparent"
-          aria-label="关闭浮层"
-          onClick={closeShareModal}
-        />
+    {shareModalOpen &&
+      typeof document !== "undefined" &&
+      createPortal(
         <div
-          className="relative z-10 flex max-h-[min(92vh,900px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-zinc-900 dark:ring-1 dark:ring-zinc-700"
-          onClick={(e) => e.stopPropagation()}
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/45 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="share-modal-title"
         >
-          <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
-            <h2
-              id="share-modal-title"
-              className="text-base font-semibold text-zinc-900 dark:text-zinc-50"
-            >
-              生成分享图片
-            </h2>
-            <button
-              type="button"
-              onClick={closeShareModal}
-              className="rounded-full p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
-              aria-label="关闭"
-            >
-              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          <p className="px-4 pt-3 text-xs text-zinc-500 dark:text-zinc-400">
-            请右键点击图片保存或复制；触屏设备可使用下方「下载图片」。
-          </p>
-          <div className="flex min-h-[120px] flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-4">
-            {sharing && !sharePreviewSrc && !shareModalError && (
-              <div className="flex flex-col items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
-                <svg
-                  className="h-8 w-8 animate-spin text-zinc-400"
-                  viewBox="0 0 24 24"
-                  aria-hidden
-                >
-                  <circle
-                    cx="12"
-                    cy="12"
-                    r="9"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeDasharray="32 24"
-                  />
-                </svg>
-                <span>正在生成…</span>
-              </div>
-            )}
-            {shareModalError && (
-              <p className="text-center text-sm text-red-600 dark:text-red-400">{shareModalError}</p>
-            )}
-            {sharePreviewSrc && (
-              // data URL 预览，不用 next/image
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={sharePreviewSrc}
-                alt="分享卡片预览"
-                className="max-h-[min(60vh,520px)] max-w-full select-none rounded-lg shadow-md"
-              />
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-2 border-t border-zinc-200 px-4 py-3 dark:border-zinc-700">
-            <button
-              type="button"
-              onClick={downloadShareImage}
-              disabled={!sharePreviewSrc}
-              className="rounded-lg bg-zinc-900 px-3 py-2 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-            >
-              下载图片
-            </button>
-            {typeof navigator !== "undefined" && typeof navigator.share === "function" && (
+          <button
+            type="button"
+            className="absolute inset-0 z-0 cursor-default border-0 bg-transparent"
+            aria-label="关闭浮层"
+            onClick={closeShareModal}
+          />
+          <div
+            className="relative z-10 flex max-h-[min(92vh,900px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-zinc-900 dark:ring-1 dark:ring-zinc-700"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
+              <h2
+                id="share-modal-title"
+                className="text-base font-semibold text-zinc-900 dark:text-zinc-50"
+              >
+                生成分享图片
+              </h2>
               <button
                 type="button"
-                onClick={() => void shareImageFromPreview()}
-                disabled={!sharePreviewSrc}
-                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                onClick={closeShareModal}
+                className="rounded-full p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                aria-label="关闭"
               >
-                系统分享…
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
-            )}
-            <button
-              type="button"
-              onClick={() => void copyShareUrl(shareUrlRef.current)}
-              className="rounded-lg px-3 py-2 text-xs text-zinc-600 underline-offset-2 hover:underline dark:text-zinc-400"
-            >
-              复制文章链接
-            </button>
+            </div>
+            <div className="flex min-h-[120px] flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-4">
+              {sharing && !sharePreviewSrc && !shareModalError && (
+                <div className="flex flex-col items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
+                  <svg
+                    className="h-8 w-8 animate-spin text-zinc-400"
+                    viewBox="0 0 24 24"
+                    aria-hidden
+                  >
+                    <circle
+                      cx="12"
+                      cy="12"
+                      r="9"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeDasharray="32 24"
+                    />
+                  </svg>
+                  <span>正在生成…</span>
+                </div>
+              )}
+              {shareModalError && (
+                <p className="text-center text-sm text-red-600 dark:text-red-400">{shareModalError}</p>
+              )}
+              {sharePreviewSrc && (
+                // data URL 预览，不用 next/image
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={sharePreviewSrc}
+                  alt="分享卡片预览"
+                  className="max-h-[min(60vh,520px)] max-w-full select-none rounded-lg shadow-md"
+                />
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 border-t border-zinc-200 px-4 py-3 dark:border-zinc-700">
+              <button
+                type="button"
+                onClick={downloadShareImage}
+                disabled={!sharePreviewSrc}
+                className="rounded-lg bg-zinc-900 px-3 py-2 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              >
+                下载图片
+              </button>
+              {typeof navigator !== "undefined" && typeof navigator.share === "function" && (
+                <button
+                  type="button"
+                  onClick={() => void shareImageFromPreview()}
+                  disabled={!sharePreviewSrc}
+                  className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                >
+                  系统分享…
+                </button>
+              )}
+              <span className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void copyShareUrl(shareUrlRef.current)}
+                  className="rounded-lg px-3 py-2 text-xs text-zinc-600 underline-offset-2 hover:underline dark:text-zinc-400"
+                >
+                  复制文章链接
+                </button>
+                {copyLinkHint === "ok" && (
+                  <span className="text-xs text-emerald-600 dark:text-emerald-400">已复制</span>
+                )}
+                {copyLinkHint === "fail" && (
+                  <span className="text-xs text-amber-700 dark:text-amber-400">
+                    未能复制，请用弹窗里的链接或浏览器权限允许剪贴板
+                  </span>
+                )}
+              </span>
+            </div>
           </div>
-        </div>
-      </div>
-    )}
+        </div>,
+        document.body
+      )}
     </>
   );
 }
@@ -663,6 +716,8 @@ export default function EntriesPage() {
   const touchLastYRef = useRef(0);
   const hasMoreRef = useRef(true);
   const totalPostsRef = useRef(0);
+  /** 防止无限滚动与 hash 深链同时触发同一 offset 的重复 append */
+  const listAppendInFlightRef = useRef(false);
 
   const datesWithPosts = useMemo(() => new Set(datesFromApi), [datesFromApi]);
   const totalPosts = total;
@@ -800,13 +855,36 @@ export default function EntriesPage() {
     if (loading || typeof window === "undefined") return;
     const anchor = window.location.hash.replace(/^#/, "");
     if (!anchor.startsWith("entry-")) return;
-    requestAnimationFrame(() => {
-      document.getElementById(anchor)?.scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
+    const el = document.getElementById(anchor);
+    if (el) {
+      requestAnimationFrame(() => {
+        el.scrollIntoView({ behavior: "smooth", block: "nearest" });
       });
-    });
-  }, [loading, items]);
+      return;
+    }
+    const idNum = Number(anchor.slice("entry-".length));
+    if (!Number.isFinite(idNum)) return;
+    const inList = items.some((d) => d.id === idNum);
+    if (inList) {
+      requestAnimationFrame(() => {
+        document.getElementById(anchor)?.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+        });
+      });
+      return;
+    }
+    if (total > 0 && items.length >= total) return;
+    if (!hasMore || loadingMore || listAppendInFlightRef.current) return;
+    listAppendInFlightRef.current = true;
+    setLoadingMore(true);
+    loadPage(items.length, true, selectedTag)
+      .catch(() => {})
+      .finally(() => {
+        listAppendInFlightRef.current = false;
+        setLoadingMore(false);
+      });
+  }, [loading, items, total, hasMore, loadingMore, selectedTag, loadPage]);
 
   useEffect(() => {
     fetch("/api/profile")
@@ -834,12 +912,21 @@ export default function EntriesPage() {
     if (!el || !hasMore || loading) return;
     const obs = new IntersectionObserver(
       (entries) => {
-        if (!entries[0]?.isIntersecting || loadingMore) return;
+        if (
+          !entries[0]?.isIntersecting ||
+          loadingMore ||
+          listAppendInFlightRef.current
+        )
+          return;
+        listAppendInFlightRef.current = true;
         setLoadingMore(true);
         const offset = items.length;
         loadPage(offset, true, selectedTag)
           .catch(() => {})
-          .finally(() => setLoadingMore(false));
+          .finally(() => {
+            listAppendInFlightRef.current = false;
+            setLoadingMore(false);
+          });
       },
       { rootMargin: "200px", threshold: 0 }
     );
