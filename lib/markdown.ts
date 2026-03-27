@@ -59,6 +59,24 @@ function mapOutsideFencedBlocks(src: string, fn: (prose: string) => string): str
   return result;
 }
 
+/**
+ * Markdown 会把「三个及以上连续换行」压成「只分一段」，与编辑器里多空行不一致。
+ * 把多出来的空行变成只含 NBSP 的独立段落，前台与预览才能留出对应竖直间距。
+ */
+function preserveExtraBlankLinesInProse(prose: string): string {
+  if (!prose) return prose;
+  return prose.replace(/(?:\n[ \t]*){3,}/g, (full) => {
+    const n = full.match(/\n/g)?.length ?? 0;
+    const extra = n - 2;
+    if (extra <= 0) return full;
+    return (
+      "\n\n" +
+      Array.from({ length: extra }, () => "\u00a0").join("\n\n") +
+      "\n\n"
+    );
+  });
+}
+
 function escapeAttr(text: string) {
   return text
     .replaceAll("&", "&amp;")
@@ -96,7 +114,9 @@ marked.use({
  * 亦可手写 `= `…`====== `；`#标签`（无空格）仍为正文标签。
  */
 function prepareFencedProseChunk(chunk: string): string {
-  return stripHashtagOnlyLinesInProse(notionOrEqualsHeadingsToAtx(chunk));
+  return preserveExtraBlankLinesInProse(
+    stripHashtagOnlyLinesInProse(notionOrEqualsHeadingsToAtx(chunk))
+  );
 }
 
 export function renderMarkdown(markdown: string): string {
