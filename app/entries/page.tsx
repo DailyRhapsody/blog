@@ -334,6 +334,9 @@ function EntryCard({
   const timeStr = formatDate12h(
     item.publishedAt ?? item.date + "T12:00:00"
   );
+  const locationMapUrl = item.location
+    ? `https://uri.amap.com/search?keyword=${encodeURIComponent(item.location)}`
+    : "";
 
   return (
     <article
@@ -413,29 +416,39 @@ function EntryCard({
         </div>
       )}
       <EntrySummary text={item.summary} />
-      <div className="flex flex-col items-start gap-1">
-        {(item.tags ?? []).length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {(item.tags ?? []).map((tag) => (
-              <span
-                key={tag}
-                className="rounded bg-zinc-200/80 px-1.5 py-0.5 text-[0.65rem] text-zinc-600 dark:bg-zinc-700 dark:text-zinc-400"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between gap-2">
+          {(item.tags ?? []).length > 0 ? (
+            <div className="min-w-0 flex flex-wrap gap-1">
+              {(item.tags ?? []).map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded bg-zinc-200/80 px-1.5 py-0.5 text-[0.65rem] text-zinc-600 dark:bg-zinc-700 dark:text-zinc-400"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div />
+          )}
+          {item.location && (
+            <a
+              href={locationMapUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="max-w-[48%] shrink-0 truncate text-right text-[0.72rem] text-zinc-500 underline-offset-2 hover:underline dark:text-zinc-400"
+              title={`在地图中打开：${item.location}`}
+            >
+              📍 {item.location}
+            </a>
+          )}
+        </div>
         <EntryComments
           diaryId={item.id}
           open={commentsOpen}
           onOpenChange={setCommentsOpen}
         />
-        {item.location && (
-          <div className="mt-1 w-full text-right">
-            <span className="text-[0.72rem] text-zinc-500 dark:text-zinc-400">📍 {item.location}</span>
-          </div>
-        )}
       </div>
     </article>
   );

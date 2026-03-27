@@ -130,18 +130,27 @@ function AdminCard({
         </span>
       )}
       <AdminSummary text={d.summary || ""} />
-      {(d.tags ?? []).length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {(d.tags ?? []).map((tag) => (
-            <span
-              key={tag}
-              className="rounded bg-zinc-200/80 px-1.5 py-0.5 text-[0.65rem] text-zinc-600 dark:bg-zinc-700 dark:text-zinc-400"
-            >
-              {tag}
-            </span>
-          ))}
-        </div>
-      )}
+      <div className="flex items-center justify-between gap-2">
+        {(d.tags ?? []).length > 0 ? (
+          <div className="min-w-0 flex flex-wrap gap-1">
+            {(d.tags ?? []).map((tag) => (
+              <span
+                key={tag}
+                className="rounded bg-zinc-200/80 px-1.5 py-0.5 text-[0.65rem] text-zinc-600 dark:bg-zinc-700 dark:text-zinc-400"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <div />
+        )}
+        {d.location && (
+          <span className="max-w-[48%] shrink-0 truncate text-right text-[0.72rem] text-zinc-500 dark:text-zinc-400">
+            📍 {d.location}
+          </span>
+        )}
+      </div>
     </article>
   );
 }
