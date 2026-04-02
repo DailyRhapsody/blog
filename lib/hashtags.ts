@@ -97,3 +97,56 @@ export function ensureTagLinesForEdit(
   const trimmedEnd = base.replace(/\s+$/u, "");
   return trimmedEnd ? `${trimmedEnd}\n\n${suffix}` : suffix;
 }
+
+function mapOutsideFencedBlocks(src: string, fn: (prose: string) => string): string {
+  let result = "";
+  let last = 0;
+  FENCED_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = FENCED_RE.exec(src)) !== null) {
+    result += fn(src.slice(last, m.index)) + m[0];
+    last = m.index + m[0].length;
+  }
+  result += fn(src.slice(last));
+  return result;
+}
+
+/**
+ * 管理员批量操作：从 Markdown 正文中移除某个 `#标签`。
+ * - 仅处理围栏代码块外；行内代码整体忽略（避免误删 `#fff`、命令等）
+ * - 若某行仅为标签行（可多标签），会移除该标签并在行空时删掉整行
+ */
+export function removeHashtagFromMarkdown(text: string, tag: string): string {
+  const t = (tag ?? "").trim();
+  if (!t) return text ?? "";
+  const src = (text ?? "").replace(/\r\n/g, "\n");
+  const boundary = String.raw`[\s\u3000,，.;；:：!！?？。、（）()\[\]【】《》「」]`;
+  const re = new RegExp(String.raw`(^|${boundary})#${t}(?=$|${boundary})`, "gmu");
+
+  return mapOutsideFencedBlocks(src, (chunk) => {
+    // 行内代码整体忽略：把每段 `...` 临时换成占位符
+    const codes: string[] = [];
+    let prose = chunk.replace(INLINE_CODE_RE, (m) => {
+      codes.push(m);
+      return `\u0000C${codes.length - 1}\u0000`;
+    });
+
+    // 先移除「仅标签行」中的目标标签
+    const lines = prose.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!LINE_ONLY_HASHTAGS_RE.test(line)) continue;
+      const parts = line.trim().split(/\s+/).filter(Boolean);
+      const kept = parts.filter((p) => p !== `#${t}`);
+      lines[i] = kept.length ? kept.join(" ") : "";
+    }
+    prose = lines.filter((l) => l !== "").join("\n");
+
+    // 再移除正文中的 #tag（保留前导边界字符）
+    prose = prose.replace(re, (_full, p1: string) => p1);
+
+    // 还原行内代码段
+    prose = prose.replace(/\u0000C(\d+)\u0000/g, (_m, idx) => codes[Number(idx)] ?? "");
+    return prose;
+  });
+}

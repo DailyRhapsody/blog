@@ -92,6 +92,7 @@ function DefaultAvatar({
         alt=""
         width={40}
         height={40}
+        unoptimized
         className="h-full w-full object-cover"
         onError={() => setFailed(true)}
       />
@@ -132,7 +133,7 @@ const CalendarHeatmap = memo(function CalendarHeatmap({ datesWithPosts }: { date
 
   return (
     <div
-      className="inline-grid grid-cols-7 gap-1 rounded-xl border border-zinc-200 bg-white/80 p-2.5 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/80"
+      className="inline-grid h-[148px] grid-cols-7 gap-1 rounded-xl border border-zinc-200 bg-white/80 p-2.5 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/80"
       style={{ width: "min(100%, 168px)" }}
     >
       {weeks.flat().map((day, i) =>
@@ -696,6 +697,7 @@ export default function EntriesPage() {
   const [total, setTotal] = useState(0);
   const [tagCounts, setTagCounts] = useState<{ name: string; value: number }[]>([]);
   const [datesFromApi, setDatesFromApi] = useState<string[]>([]);
+  const [galleryThumbs, setGalleryThumbs] = useState<string[]>([]);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isAdminSession, setIsAdminSession] = useState(false);
@@ -732,6 +734,25 @@ export default function EntriesPage() {
     hasMoreRef.current = hasMore;
     totalPostsRef.current = totalPosts;
   }, [hasMore, totalPosts]);
+
+  useEffect(() => {
+    fetch("/api/gallery")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => {
+        const list = Array.isArray(data) ? data : [];
+        const imgs: string[] = [];
+        for (const item of list) {
+          const arr = Array.isArray(item?.images) ? item.images : [];
+          for (const src of arr) {
+            if (typeof src === "string" && src.trim()) imgs.push(src.trim());
+            if (imgs.length >= 4) break;
+          }
+          if (imgs.length >= 4) break;
+        }
+        setGalleryThumbs(imgs.slice(0, 4));
+      })
+      .catch(() => setGalleryThumbs([]));
+  }, []);
 
   const runReturnToTop = useCallback(() => {
     if (typeof window === "undefined" || !contentWrapperRef.current) return;
@@ -1191,9 +1212,40 @@ export default function EntriesPage() {
             className={!hasMore && isRebounding ? "rebound-transition" : ""}
           >
           <div className="px-4 pt-5">
-          {/* 顶部功能区：日历热力图（左）+ 预留同级；contain 减轻回顶滚动时重绘 */}
+          {/* 顶部功能区：日历热力图（左）+ 画廊入口（右）；contain 减轻回顶滚动时重绘 */}
           <div className="mb-5 flex flex-wrap items-start gap-6 [contain:layout_paint]">
             <CalendarHeatmap datesWithPosts={datesWithPosts} />
+            <Link
+              href="/gallery"
+              aria-label="打开画廊"
+              className="inline-grid h-[148px] rounded-xl border border-zinc-200 bg-white/80 p-2.5 shadow-sm transition-apple hover:shadow-md dark:border-zinc-700 dark:bg-zinc-800/80"
+              style={{ width: "min(100%, 168px)" }}
+            >
+              <div className="grid h-full w-full">
+                <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-2">
+                  {Array.from({ length: 4 }).map((_, i) => {
+                    const src = galleryThumbs[i];
+                    return (
+                      <div
+                        key={src ? `${src}-${i}` : `ph-${i}`}
+                        className="relative overflow-hidden rounded-[8px] bg-zinc-100 ring-1 ring-zinc-200/70 dark:bg-zinc-700/60 dark:ring-zinc-600/60"
+                      >
+                        {src ? (
+                          <Image
+                            src={src}
+                            alt=""
+                            fill
+                            unoptimized
+                            className="object-cover"
+                            sizes="(max-width: 768px) 76px, 76px"
+                          />
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </Link>
           </div>
 
           {/* 标签词云 */}

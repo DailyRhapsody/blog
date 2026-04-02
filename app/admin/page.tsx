@@ -43,6 +43,15 @@ type Profile = {
 const PAGE_SIZE = 20;
 const MAX_SUMMARY_LINES = 5;
 
+function getSizeClass(count: number, maxCount: number) {
+  if (maxCount <= 0) return "text-xs";
+  const r = count / maxCount;
+  if (r >= 0.7) return "text-base sm:text-lg";
+  if (r >= 0.4) return "text-sm sm:text-base";
+  if (r >= 0.2) return "text-xs sm:text-sm";
+  return "text-[0.65rem] sm:text-xs";
+}
+
 function AdminSummary({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
   const needsExpand =
@@ -178,15 +187,14 @@ function AdminCard({
 export default function AdminPage() {
   const [diaries, setDiaries] = useState<Diary[]>([]);
   const [total, setTotal] = useState(0);
+  const [tagCounts, setTagCounts] = useState<{ name: string; value: number }[]>([]);
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [tagDeleting, setTagDeleting] = useState<string | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [profileDraft, setProfileDraft] = useState<Profile | null>(null);
   const [profileEditing, setProfileEditing] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [seedLoading, setSeedLoading] = useState(false);
-  const [seedMessage, setSeedMessage] = useState<string>("");
-  const [wpSyncLoading, setWpSyncLoading] = useState(false);
-  const [wpSyncMessage, setWpSyncMessage] = useState<string>("");
   const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
   const scrollPersistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -208,14 +216,16 @@ export default function AdminPage() {
         offset: String((pageNum - 1) * PAGE_SIZE),
       });
       if (q.trim()) params.set("q", q.trim());
+      if (selectedTag) params.set("tag", selectedTag);
       fetch(`/api/diaries?${params}`)
         .then((res) => {
           if (!res.ok) throw new Error(String(res.status));
           return res.json();
         })
-        .then((data: { items?: Diary[]; total?: number }) => {
+        .then((data: { items?: Diary[]; total?: number; tagCounts?: { name: string; value: number }[] }) => {
           setDiaries(Array.isArray(data.items) ? data.items : []);
           setTotal(typeof data.total === "number" ? data.total : 0);
+          if (Array.isArray(data.tagCounts)) setTagCounts(data.tagCounts);
         })
         .catch(() => {
           setDiaries([]);
@@ -223,7 +233,7 @@ export default function AdminPage() {
         })
         .finally(() => setLoading(false));
     },
-    [page, searchQuery]
+    [page, searchQuery, selectedTag]
   );
 
   useEffect(() => {
@@ -292,75 +302,52 @@ export default function AdminPage() {
       offset: "0",
     });
     if (searchQuery.trim()) params.set("q", searchQuery.trim());
+    if (selectedTag) params.set("tag", selectedTag);
     fetch(`/api/diaries?${params}`)
       .then((res) => {
         if (!res.ok) throw new Error(String(res.status));
         return res.json();
       })
-      .then((data: { items?: Diary[]; total?: number }) => {
+      .then((data: { items?: Diary[]; total?: number; tagCounts?: { name: string; value: number }[] }) => {
         setDiaries(Array.isArray(data.items) ? data.items : []);
         setTotal(typeof data.total === "number" ? data.total : 0);
+        if (Array.isArray(data.tagCounts)) setTagCounts(data.tagCounts);
       })
       .catch(() => {
         setDiaries([]);
         setTotal(0);
       })
       .finally(() => setLoading(false));
-  }, [searchQuery]);
+  }, [searchQuery, selectedTag]);
 
-  async function syncWpPublishedAt() {
-    if (
-      !confirm(
-        "从 dailyrhapsody.data.blog 抓取各篇帖子的精确发布时间（含时分秒），按文章 id 写回当前存储。仅执行一次修正，确定继续？"
-      )
-    ) {
-      return;
-    }
-    setWpSyncLoading(true);
-    setWpSyncMessage("");
+  // 已移除：一次性迁移用的「同步 WordPress 时间」与「仅首次初始化」。
+
+  const maxTagCount = tagCounts[0]?.value ?? 1;
+  const handleTagClick = (tag: string) => {
+    setPage(1);
+    setSelectedTag((prev) => (prev === tag ? null : tag));
+  };
+
+  async function deleteTag(tag: string) {
+    if (!confirm(`确定删除标签「${tag}」？这会从所有文章正文中移除 #${tag}，不可撤销。`)) return;
+    setTagDeleting(tag);
     try {
-      const res = await fetch("/api/admin/sync-wp-published-at", {
+      const res = await fetch("/api/admin/tags/delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apply: true }),
+        body: JSON.stringify({ tag }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
-        setWpSyncMessage(data?.error ?? "同步失败");
+        alert(data?.error ?? "删除失败");
         return;
       }
-      const matched = typeof data?.matched === "number" ? data.matched : 0;
-      const changed = typeof data?.changed === "number" ? data.changed : 0;
-      setWpSyncMessage(
-        `已同步：WordPress ${data?.wpPostCount ?? "?"} 篇，本地对齐 ${matched} 篇，更新了 ${changed} 篇的时间字段。`
-      );
-      load(page, searchQuery);
-    } catch {
-      setWpSyncMessage("同步失败：网络或服务异常");
-    } finally {
-      setWpSyncLoading(false);
-    }
-  }
-
-  async function seed() {
-    if (!confirm("将用静态数据覆盖当前存储中的文章，确定继续？")) return;
-    setSeedLoading(true);
-    setSeedMessage("");
-    try {
-      const res = await fetch("/api/seed", { method: "POST" });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        setSeedMessage(data?.error ?? "初始化失败");
-        return;
-      }
-      const count = typeof data?.count === "number" ? data.count : 0;
-      setSeedMessage(`初始化成功，共导入 ${count} 篇`);
-      setPage(1);
+      setSelectedTag((cur) => (cur === tag ? null : cur));
       load(1, searchQuery);
     } catch {
-      setSeedMessage("初始化失败：网络或服务异常");
+      alert("删除失败：网络或服务异常");
     } finally {
-      setSeedLoading(false);
+      setTagDeleting(null);
     }
   }
 
@@ -530,22 +517,6 @@ export default function AdminPage() {
           文章列表（共 {total} 篇）
         </h1>
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={syncWpPublishedAt}
-            disabled={wpSyncLoading || seedLoading}
-            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          >
-            {wpSyncLoading ? "同步中…" : "同步 WordPress 时间"}
-          </button>
-          <button
-            type="button"
-            onClick={seed}
-            disabled={seedLoading}
-            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          >
-            {seedLoading ? "初始化中…" : "仅首次初始化"}
-          </button>
           <Link
             href="/admin/diaries/new"
             onClick={flushListScrollPosition}
@@ -555,11 +526,61 @@ export default function AdminPage() {
           </Link>
         </div>
       </div>
-      {seedMessage && (
-        <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-300">{seedMessage}</p>
-      )}
-      {wpSyncMessage && (
-        <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-300">{wpSyncMessage}</p>
+
+      {/* 标签词云：筛选 + 删除标签 */}
+      {tagCounts.length > 0 && (
+        <section className="mb-6 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="flex flex-wrap items-center gap-2">
+            {tagCounts.map(({ name, value }) => (
+              <div key={name} className="group relative inline-flex items-center">
+                <button
+                  type="button"
+                  onClick={() => handleTagClick(name)}
+                  className={`rounded-full px-2.5 py-1 pr-7 transition-apple focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-zinc-900 ${getSizeClass(value, maxTagCount)} ${
+                    selectedTag === name
+                      ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                      : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 hover:scale-105 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                  }`}
+                  title={`共 ${value} 篇`}
+                >
+                  {name}
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    deleteTag(name);
+                  }}
+                  disabled={tagDeleting !== null}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 rounded-full bg-black/10 p-1 text-zinc-600 opacity-0 transition group-hover:opacity-100 hover:bg-black/15 disabled:opacity-40 dark:bg-white/10 dark:text-zinc-300 dark:hover:bg-white/15"
+                  aria-label={`删除标签 ${name}`}
+                >
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
+          {selectedTag && (
+            <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+              当前筛选：{selectedTag}（共 {total} 篇）
+              <button
+                type="button"
+                onClick={() => handleTagClick(selectedTag)}
+                className="ml-2 rounded underline transition-apple hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2"
+              >
+                取消
+              </button>
+            </p>
+          )}
+          {tagDeleting && (
+            <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+              正在删除标签：{tagDeleting}…
+            </p>
+          )}
+        </section>
       )}
 
       {/* 文章内容模糊搜索 */}

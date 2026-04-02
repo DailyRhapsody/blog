@@ -1,7 +1,7 @@
 // 本地调试：根据 .env / .env.local 的 AUTH_SECRET 打印 admin_session 的 cookie 值（不含名称）。
-// 示例：curl -X POST http://localhost:3000/api/admin/sync-wp-published-at \
+// 示例（用于需管理员身份的接口）：curl -X POST http://localhost:3000/api/profile \
 //   -H "Cookie: admin_session=$(node scripts/emit-admin-session-cookie.mjs)" \
-//   -H "Content-Type: application/json" -d '{"apply":true}'
+//   -H "Content-Type: application/json" -d '{"name":"DailyRhapsody","signature":"","avatar":"","location":"","industry":"","zodiac":"","headerBg":""}'
 
 import { createHmac } from "node:crypto";
 import fs from "node:fs";

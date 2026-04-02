@@ -60,6 +60,7 @@ export default function ImageUpload({ value, onChange, maxCount = 9 }: ImageUplo
               src={url}
               alt=""
               fill
+              unoptimized
               className="object-cover"
               sizes="96px"
             />
@@ -100,9 +101,6 @@ export default function ImageUpload({ value, onChange, maxCount = 9 }: ImageUplo
         )}
       </div>
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">
-        支持 JPG / PNG / GIF / WebP，最多 {maxCount} 张（发帖时可上传多图，类似朋友圈）
-      </p>
     </div>
   );
 }

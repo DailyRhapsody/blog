@@ -30,6 +30,7 @@ function passPublicDataApi(req: NextRequest): boolean {
 
 function isProtectedPublicApi(pathname: string, method: string): boolean {
   if (method === "GET" && pathname === "/api/profile") return true;
+  if (pathname === "/api/gallery" && method === "GET") return true;
   if (!pathname.startsWith("/api/diaries")) return false;
   if (method === "GET") return true;
   if (method === "POST") {
@@ -44,6 +45,7 @@ function isGateIssuingPage(pathname: string, method: string): boolean {
     pathname === "/" ||
     pathname === "/entries" ||
     pathname === "/the-moment" ||
+    pathname === "/gallery" ||
     pathname === "/about"
   );
 }
@@ -110,10 +112,12 @@ export const config = {
     "/admin/:path*",
     "/api/diaries",
     "/api/diaries/:path*",
+    "/api/gallery",
     "/api/profile",
     "/",
     "/entries",
     "/the-moment",
+    "/gallery",
     "/about",
   ],
 };
