@@ -12,6 +12,7 @@ type Diary = {
   id: number;
   date: string;
   publishedAt?: string;
+  isPublic?: boolean;
   summary: string;
   location?: string;
   tags?: string[];
@@ -466,6 +467,11 @@ function EntryCard({
           <p className="text-[0.75rem] text-zinc-500 dark:text-zinc-400">
             {timeStr}
           </p>
+          {canEdit && item.isPublic === false && (
+            <span className="mt-1 w-fit rounded bg-zinc-200/80 px-1.5 py-0.5 text-[0.65rem] text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+              私密
+            </span>
+          )}
         </div>
         <div className="relative shrink-0">
           <button

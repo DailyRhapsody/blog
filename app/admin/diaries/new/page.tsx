@@ -34,6 +34,7 @@ export default function NewDiaryPage() {
   const [location, setLocation] = useState("");
   const [images, setImages] = useState<string[]>([]);
   const [pinned, setPinned] = useState(false);
+  const [privateOnly, setPrivateOnly] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
@@ -59,6 +60,7 @@ export default function NewDiaryPage() {
           location,
           images,
           pinned,
+          isPublic: !privateOnly,
         }),
       });
       if (!res.ok) {
@@ -148,6 +150,18 @@ export default function NewDiaryPage() {
           />
           <label htmlFor="pinned" className="text-sm text-zinc-700 dark:text-zinc-300">
             发布时置顶（最多一篇，若已有置顶需先取消该篇）
+          </label>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="privateOnly"
+            checked={privateOnly}
+            onChange={(e) => setPrivateOnly(e.target.checked)}
+            className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-50"
+          />
+          <label htmlFor="privateOnly" className="text-sm text-zinc-700 dark:text-zinc-300">
+            仅自己可见
           </label>
         </div>
         {error && (

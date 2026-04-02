@@ -5,7 +5,8 @@ import { Pool } from "pg";
 export type GalleryItem = {
   id: number;
   createdAt: string;
-  text?: string;
+  /** 是否公开展示（默认 true）；false 则仅管理员可见 */
+  isPublic?: boolean;
   images: string[];
 };
 
@@ -53,9 +54,13 @@ async function ensureSchema(): Promise<void> {
           CREATE TABLE IF NOT EXISTS gallery_items (
             id BIGSERIAL PRIMARY KEY,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            text TEXT NULL,
+            is_public BOOLEAN NOT NULL DEFAULT TRUE,
             images JSONB NOT NULL DEFAULT '[]'::jsonb
           );
+        `);
+        await client.query(`
+          ALTER TABLE gallery_items
+          ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT TRUE;
         `);
         await client.query(`
           CREATE INDEX IF NOT EXISTS idx_gallery_items_created_at
@@ -102,7 +107,7 @@ export async function getGalleryItems(): Promise<GalleryItem[]> {
   if (USE_DATABASE) {
     await ensureSchema();
     const res = await getPool().query(
-      `SELECT id, created_at, text, images FROM gallery_items ORDER BY created_at DESC`
+      `SELECT id, created_at, is_public, images FROM gallery_items ORDER BY created_at DESC`
     );
     return res.rows.map((row) => ({
       id: Number(row.id),
@@ -110,7 +115,7 @@ export async function getGalleryItems(): Promise<GalleryItem[]> {
         row.created_at instanceof Date
           ? row.created_at.toISOString()
           : new Date(row.created_at).toISOString(),
-      text: typeof row.text === "string" ? row.text : undefined,
+      isPublic: row.is_public !== false,
       images: normalizeStringArray(row.images),
     }));
   }
@@ -122,27 +127,24 @@ export async function getGalleryItems(): Promise<GalleryItem[]> {
 }
 
 export async function addGalleryItem(input: {
-  text?: string;
   images: string[];
   createdAt?: string;
+  isPublic?: boolean;
 }): Promise<GalleryItem> {
   assertWritableStorageMode();
   const createdAt = input.createdAt
     ? new Date(input.createdAt).toISOString()
     : new Date().toISOString();
-  const text =
-    typeof input.text === "string" && input.text.trim() !== ""
-      ? input.text.trim().slice(0, 2000)
-      : undefined;
   const images = normalizeStringArray(input.images).slice(0, 24);
+  const isPublic = input.isPublic !== false;
 
   if (USE_DATABASE) {
     await ensureSchema();
     const res = await getPool().query(
-      `INSERT INTO gallery_items (created_at, text, images)
+      `INSERT INTO gallery_items (created_at, is_public, images)
        VALUES ($1::timestamptz, $2, $3::jsonb)
-       RETURNING id, created_at, text, images`,
-      [createdAt, text ?? null, JSON.stringify(images)]
+       RETURNING id, created_at, is_public, images`,
+      [createdAt, isPublic, JSON.stringify(images)]
     );
     const row = res.rows[0];
     return {
@@ -151,14 +153,14 @@ export async function addGalleryItem(input: {
         row.created_at instanceof Date
           ? row.created_at.toISOString()
           : new Date(row.created_at).toISOString(),
-      text: typeof row.text === "string" ? row.text : undefined,
+      isPublic: row.is_public !== false,
       images: normalizeStringArray(row.images),
     };
   }
 
   const items = await getGalleryItems();
   const nextId = items.length === 0 ? 1 : Math.max(...items.map((x) => x.id), 0) + 1;
-  const item: GalleryItem = { id: nextId, createdAt, text, images };
+  const item: GalleryItem = { id: nextId, createdAt, isPublic, images };
   const next = [item, ...items];
   await writeToFile(next);
   return item;

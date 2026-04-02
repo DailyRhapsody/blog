@@ -11,8 +11,10 @@ export async function GET(req: Request) {
     windowMs: 60_000,
   });
   if (blocked) return blocked;
+  const admin = await isAdmin();
   const items = await getGalleryItems();
-  return withAntiScrapeHeaders(NextResponse.json(items));
+  const visible = admin ? items : items.filter((x) => x.isPublic !== false);
+  return withAntiScrapeHeaders(NextResponse.json(visible));
 }
 
 export async function POST(req: Request) {
@@ -23,7 +25,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: { text?: string; images?: unknown };
+  let body: { images?: unknown; isPublic?: boolean };
   try {
     body = await req.json();
   } catch {
@@ -37,8 +39,8 @@ export async function POST(req: Request) {
   }
 
   const item = await addGalleryItem({
-    text: body.text,
     images: images.map((s) => s.trim()),
+    isPublic: body.isPublic !== false,
   });
   return NextResponse.json(item);
 }

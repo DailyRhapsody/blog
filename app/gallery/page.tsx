@@ -9,6 +9,7 @@ import ImageUpload from "@/app/admin/ImageUpload";
 type GalleryItem = {
   id: number;
   createdAt: string;
+  isPublic?: boolean;
   images: string[];
 };
 
@@ -31,6 +32,7 @@ export default function GalleryPage() {
   const { ok: isAdmin, loading: adminLoading } = useIsAdmin();
 
   const [newImages, setNewImages] = useState<string[]>([]);
+  const [privateOnly, setPrivateOnly] = useState(false);
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState("");
 
@@ -63,6 +65,7 @@ export default function GalleryPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           images: newImages,
+          isPublic: !privateOnly,
         }),
       });
       const data = await res.json().catch(() => null);
@@ -112,6 +115,18 @@ export default function GalleryPage() {
                 <div className="mt-1">
                   <ImageUpload value={newImages} onChange={setNewImages} maxCount={9} />
                 </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="galleryPrivateOnly"
+                  checked={privateOnly}
+                  onChange={(e) => setPrivateOnly(e.target.checked)}
+                  className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-50"
+                />
+                <label htmlFor="galleryPrivateOnly" className="text-sm text-zinc-700 dark:text-zinc-300">
+                  仅自己可见
+                </label>
               </div>
               {postError && (
                 <p className="text-sm text-red-600 dark:text-red-400">{postError}</p>
@@ -177,8 +192,15 @@ export default function GalleryPage() {
                 </div>
 
                 <div className="space-y-2 px-4 py-4">
-                  <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                    {formatDate12h(item.createdAt)}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                      {formatDate12h(item.createdAt)}
+                    </div>
+                    {isAdmin && item.isPublic === false && (
+                      <span className="rounded bg-zinc-200/80 px-1.5 py-0.5 text-[0.65rem] text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+                        私密
+                      </span>
+                    )}
                   </div>
                 </div>
               </article>

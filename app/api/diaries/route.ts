@@ -35,7 +35,8 @@ export async function GET(req: Request) {
 
   const diaries = await getDiaries(allDiaries);
   const admin = await isAdmin();
-  diaries.sort((a, b) => {
+  const visible = admin ? diaries : diaries.filter((d) => d.isPublic !== false);
+  visible.sort((a, b) => {
     if (a.pinned && !b.pinned) return -1;
     if (!a.pinned && b.pinned) return 1;
     return (
@@ -47,17 +48,17 @@ export async function GET(req: Request) {
   if (limitParam == null || limitParam === "") {
     if (!admin) {
       const limit = DEFAULT_PAGE_SIZE;
-      const items = diaries.slice(0, limit);
+      const items = visible.slice(0, limit);
       const body = {
         items,
-        total: diaries.length,
-        hasMore: diaries.length > items.length,
-        tagCounts: getTagCounts(diaries),
-        dates: [...new Set(diaries.map((d) => d.date))],
+        total: visible.length,
+        hasMore: visible.length > items.length,
+        tagCounts: getTagCounts(visible),
+        dates: [...new Set(visible.map((d) => d.date))],
       };
       return withAntiScrapeHeaders(NextResponse.json(body));
     }
-    return withAntiScrapeHeaders(NextResponse.json(diaries));
+    return withAntiScrapeHeaders(NextResponse.json(visible));
   }
 
   const limit = Math.min(
@@ -69,8 +70,8 @@ export async function GET(req: Request) {
   const q = (searchParams.get("q") ?? "").trim().toLowerCase();
 
   let filtered = tag
-    ? diaries.filter((d) => (d.tags ?? []).includes(tag))
-    : diaries;
+    ? visible.filter((d) => (d.tags ?? []).includes(tag))
+    : visible;
   if (q) {
     filtered = filtered.filter((d) => {
       const text = [d.summary ?? "", d.location ?? "", (d.tags ?? []).join(" ")].join(" ");
@@ -91,8 +92,8 @@ export async function GET(req: Request) {
   } = { items, total, hasMore };
 
   if (offset === 0) {
-    body.tagCounts = getTagCounts(diaries);
-    body.dates = [...new Set(diaries.map((d) => d.date))];
+    body.tagCounts = getTagCounts(visible);
+    body.dates = [...new Set(visible.map((d) => d.date))];
   }
 
   return withAntiScrapeHeaders(NextResponse.json(body));
@@ -114,6 +115,7 @@ export async function POST(req: Request) {
       tags?: string[];
       images?: string[];
       pinned?: boolean;
+      isPublic?: boolean;
     };
     try {
       body = await req.json();
@@ -151,6 +153,7 @@ export async function POST(req: Request) {
       date: dateStr,
       publishedAt,
       pinned: !!body.pinned,
+      isPublic: body.isPublic !== false,
       summary,
       location: body.location?.trim() || "",
       tags: extractHashtagsFromMarkdown(summary),

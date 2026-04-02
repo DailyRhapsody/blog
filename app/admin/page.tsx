@@ -24,6 +24,7 @@ type Diary = {
   id: number;
   date: string;
   publishedAt?: string;
+  isPublic?: boolean;
   summary: string;
   location?: string;
   tags?: string[];
@@ -156,6 +157,11 @@ function AdminCard({
       {d.pinned && (
         <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[0.65rem] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
           置顶
+        </span>
+      )}
+      {d.isPublic === false && (
+        <span className="w-fit rounded bg-zinc-200/80 px-1.5 py-0.5 text-[0.65rem] text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+          私密
         </span>
       )}
       <AdminSummary text={d.summary || ""} />

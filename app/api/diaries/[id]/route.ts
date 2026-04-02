@@ -25,6 +25,12 @@ export async function GET(
       NextResponse.json({ error: "Not found" }, { status: 404 })
     );
   }
+  const admin = await isAdmin();
+  if (!admin && diary.isPublic === false) {
+    return withAntiScrapeHeaders(
+      NextResponse.json({ error: "Not found" }, { status: 404 })
+    );
+  }
   return withAntiScrapeHeaders(NextResponse.json(diary));
 }
 
@@ -40,7 +46,7 @@ export async function PUT(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const { id } = await params;
-    let body: { date?: string; publishedAt?: string; summary?: string; location?: string; tags?: string[]; images?: string[]; pinned?: boolean };
+    let body: { date?: string; publishedAt?: string; summary?: string; location?: string; tags?: string[]; images?: string[]; pinned?: boolean; isPublic?: boolean };
     try {
       body = await req.json();
     } catch {
@@ -94,6 +100,7 @@ export async function PUT(
       date: nextDate,
       publishedAt: nextPublished,
       pinned: body.pinned !== undefined ? body.pinned : diaries[index].pinned,
+      isPublic: body.isPublic !== undefined ? body.isPublic : diaries[index].isPublic,
       summary,
       location: body.location !== undefined ? body.location.trim() : diaries[index].location,
       tags: nextTags,
