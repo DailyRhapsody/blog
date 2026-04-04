@@ -26,9 +26,6 @@ export async function PUT(req: Request) {
     name: string;
     signature: string;
     avatar: string;
-    location: string;
-    industry: string;
-    zodiac: string;
     headerBg: string;
   }>;
   try {
@@ -40,9 +37,6 @@ export async function PUT(req: Request) {
     name: body.name,
     signature: body.signature,
     avatar: body.avatar,
-    location: body.location,
-    industry: body.industry,
-    zodiac: body.zodiac,
     headerBg: body.headerBg,
   });
   return NextResponse.json(profile);

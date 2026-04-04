@@ -122,3 +122,25 @@ input[type="number"] {
   transition: transform 380ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
+/* 头像生命环：MacBook 睡眠灯式呼吸，约 12 次/分钟 → 整周期 5s（ease-in-out） */
+@keyframes dr-sleep-led-breathe {
+  0%,
+  100% {
+    opacity: 0.34;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.dr-life-ring-sleep-led {
+  animation: dr-sleep-led-breathe 5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dr-life-ring-sleep-led {
+    animation: none;
+    opacity: 1;
+  }
+}
+

@@ -35,9 +35,6 @@ type Profile = {
   name: string;
   signature: string;
   avatar: string;
-  location: string;
-  industry: string;
-  zodiac: string;
   headerBg: string;
 };
 
@@ -420,9 +417,6 @@ export default function AdminPage() {
             <div className="space-y-3 text-sm text-zinc-700 dark:text-zinc-300">
               <p><span className="mr-2 text-zinc-500 dark:text-zinc-400">姓名</span>{profile.name || "-"}</p>
               <p><span className="mr-2 text-zinc-500 dark:text-zinc-400">签名</span>{profile.signature || "-"}</p>
-              <p><span className="mr-2 text-zinc-500 dark:text-zinc-400">位置</span>{profile.location || "-"}</p>
-              <p><span className="mr-2 text-zinc-500 dark:text-zinc-400">行业</span>{profile.industry || "-"}</p>
-              <p><span className="mr-2 text-zinc-500 dark:text-zinc-400">星座</span>{profile.zodiac || "-"}</p>
             </div>
           )}
 
@@ -456,36 +450,6 @@ export default function AdminPage() {
                     maxCount={1}
                   />
                 </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">位置</label>
-                <input
-                  type="text"
-                  value={profileDraft.location}
-                  onChange={(e) => setProfileDraft((p) => (p ? { ...p, location: e.target.value } : p))}
-                  placeholder="杭州"
-                  className="mt-1 w-full max-w-md rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">行业</label>
-                <input
-                  type="text"
-                  value={profileDraft.industry}
-                  onChange={(e) => setProfileDraft((p) => (p ? { ...p, industry: e.target.value } : p))}
-                  placeholder="计算机硬件行业"
-                  className="mt-1 w-full max-w-md rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">星座</label>
-                <input
-                  type="text"
-                  value={profileDraft.zodiac}
-                  onChange={(e) => setProfileDraft((p) => (p ? { ...p, zodiac: e.target.value } : p))}
-                  placeholder="天秤座"
-                  className="mt-1 w-full max-w-md rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">顶部背景图</label>

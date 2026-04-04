@@ -7,6 +7,7 @@ import Link from "next/link";
 import { formatDate12h } from "@/lib/format";
 import { markdownPreviewProseClass, renderMarkdown } from "@/lib/markdown";
 import { createShareCardElement } from "@/lib/share-card";
+import AvatarLifeRing from "@/components/AvatarLifeRing";
 
 type Diary = {
   id: number;
@@ -49,9 +50,6 @@ type Profile = {
   name: string;
   signature: string;
   avatar: string;
-  location: string;
-  industry: string;
-  zodiac: string;
   headerBg: string;
 };
 
@@ -313,6 +311,25 @@ function EntryCard({
   const [copyLinkHint, setCopyLinkHint] = useState<"ok" | "fail" | null>(null);
   const copyLinkHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shareUrlRef = useRef("");
+  const menuRootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onPointerDown(e: PointerEvent) {
+      const root = menuRootRef.current;
+      if (!root || root.contains(e.target as Node)) return;
+      setMenuOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setMenuOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
 
   const closeShareModal = useCallback(() => {
     setShareModalOpen(false);
@@ -473,7 +490,7 @@ function EntryCard({
             </span>
           )}
         </div>
-        <div className="relative shrink-0">
+        <div ref={menuRootRef} className="relative shrink-0">
           <button
             type="button"
             onClick={() => setMenuOpen((o) => !o)}
@@ -488,11 +505,6 @@ function EntryCard({
           </button>
           {menuOpen && (
             <>
-              <div
-                className="fixed inset-0 z-40"
-                aria-hidden="true"
-                onClick={() => setMenuOpen(false)}
-              />
               <div className="absolute right-0 top-full z-50 mt-1 min-w-[6rem] rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
                 {canEdit && (
                   <Link
@@ -772,7 +784,14 @@ export default function EntriesPage() {
     setReturnToTopProgress(0);
     document.body.style.overflow = "hidden";
 
-    const duration = Math.min(3000, 600 + 320 * Math.log(1 + startY / 300));
+    // 动态计算动画时长：基于滚动距离和header高度变化，确保视觉连贯性
+    const HEADER_HEIGHT_RANGE = 260 - 56; // 204px
+    // 算法：让展开过程占据总动画的后30-50%，视觉上更自然
+    const expandRatio = 0.4; // 展开占40%的总时长
+    const totalDuration = Math.min(3500, 800 + 400 * Math.log(1 + startY / 400));
+    const scrollDuration = totalDuration * (1 - expandRatio);
+    const expandDuration = totalDuration * expandRatio;
+
     const startT = performance.now();
     const el = contentWrapperRef.current;
     // 强 ease-out，末尾更慢，避免最后一段显得突然加速
@@ -781,18 +800,43 @@ export default function EntriesPage() {
     }
     function tick(now: number) {
       const elapsed = now - startT;
-      const t = Math.min(elapsed / duration, 1);
-      const progress = easeOutQuart(t);
-      const offset = startY * (1 - progress);
+      const totalProgress = Math.min(elapsed / totalDuration, 1);
+
+      // 计算滚动进度和展开进度
+      let scrollProgress = 0;
+      let expandProgress = 0;
+
+      if (totalProgress < 1 - expandRatio) {
+        // 前段：滚动回顶
+        scrollProgress = totalProgress / (1 - expandRatio);
+        scrollProgress = easeOutQuart(scrollProgress);
+        expandProgress = 0;
+      } else {
+        // 后段：展开header
+        scrollProgress = 1;
+        const expandElapsed = elapsed - scrollDuration;
+        expandProgress = Math.min(expandElapsed / expandDuration, 1);
+        expandProgress = easeOutQuart(expandProgress);
+      }
+
+      // 执行滚动
+      const offset = startY * (1 - scrollProgress);
       if (el.style) {
         el.style.willChange = "transform";
         el.style.transform = `translateY(-${offset}px)`;
       }
-      returnToTopProgressRef.current = t;
-      setReturnToTopProgress(t);
-      if (t < 1) {
+
+      returnToTopProgressRef.current = totalProgress;
+      setReturnToTopProgress(totalProgress);
+      headerExpandProgressRef.current = expandProgress;
+      setHeaderExpandProgress(expandProgress);
+
+      if (totalProgress < 1) {
         returnToTopRafRef.current = requestAnimationFrame(tick);
       } else {
+        // 先在 overflow:hidden 状态下把真实滚动位置归零，
+        // 再移除 transform、恢复 overflow，避免浏览器先渲染 startY 再跳到 0 的两次回弹
+        window.scrollTo(0, 0);
         el.style.willChange = "";
         el.style.transform = "";
         document.body.style.overflow = "";
@@ -800,27 +844,9 @@ export default function EntriesPage() {
         returnToTopProgressRef.current = 0;
         setReturnToTopProgress(null);
         setScrollY(0);
-        window.scrollTo(0, 0);
-        // 到顶后用与回顶相同的 easeOutQuart 曲线展开 header，时长略短以延续「到达」感
-        const expandDuration = Math.min(420, 200 + duration * 0.2);
-        const expandStartT = performance.now();
+        setHeaderExpandProgress(null);
         headerExpandProgressRef.current = 0;
-        setHeaderExpandProgress(0);
-        function expandTick(now: number) {
-          const elapsed = now - expandStartT;
-          const u = Math.min(elapsed / expandDuration, 1);
-          const eased = easeOutQuart(u);
-          headerExpandProgressRef.current = eased;
-          setHeaderExpandProgress(eased);
-          if (u < 1) {
-            returnToTopRafRef.current = requestAnimationFrame(expandTick);
-          } else {
-            setHeaderExpandProgress(null);
-            headerExpandProgressRef.current = 0;
-            returnToTopPhaseRef.current = 0;
-          }
-        }
-        returnToTopRafRef.current = requestAnimationFrame(expandTick);
+        returnToTopPhaseRef.current = 0;
       }
     }
     requestAnimationFrame(() => {
@@ -829,15 +855,20 @@ export default function EntriesPage() {
   }, []);
 
   useEffect(() => {
+    let scrollRaf = 0;
     function onScroll() {
       if (returnToTopPhaseRef.current !== 0) return;
-      const y = typeof window !== "undefined" ? window.scrollY : 0;
-      setScrollY(y);
+      if (scrollRaf) return;
+      scrollRaf = requestAnimationFrame(() => {
+        scrollRaf = 0;
+        setScrollY(typeof window !== "undefined" ? window.scrollY : 0);
+      });
     }
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       window.removeEventListener("scroll", onScroll);
+      if (scrollRaf) cancelAnimationFrame(scrollRaf);
       if (returnToTopRafRef.current) cancelAnimationFrame(returnToTopRafRef.current);
     };
   }, []);
@@ -1002,9 +1033,22 @@ export default function EntriesPage() {
       if (totalPostsRef.current === 0) return;
       if (!isAtBottom()) return;
       if (e.deltaY === 0) return;
+
+      // 仅在底部「继续往下滚」时累计彩蛋；向上滚用 deltaY<0，之前误用 abs 会把上滑也算成拉力
+      if (e.deltaY < 0) {
+        if (eggReleaseTimerRef.current) {
+          clearTimeout(eggReleaseTimerRef.current);
+          eggReleaseTimerRef.current = null;
+        }
+        eggPullAccumRef.current = 0;
+        setEggPullY(0);
+        setIsRebounding(false);
+        return;
+      }
+
       eggPullAccumRef.current = Math.min(
         MAX_EGG_PULL,
-        eggPullAccumRef.current + Math.abs(e.deltaY)
+        eggPullAccumRef.current + e.deltaY
       );
       if (!rafId) rafId = requestAnimationFrame(flushPullY);
       if (eggReleaseTimerRef.current) clearTimeout(eggReleaseTimerRef.current);
@@ -1022,6 +1066,12 @@ export default function EntriesPage() {
       if (touchLastYRef.current === 0) touchLastYRef.current = y;
       const dy = y - touchLastYRef.current;
       touchLastYRef.current = y;
+      if (dy < 0) {
+        eggPullAccumRef.current = 0;
+        setEggPullY(0);
+        setIsRebounding(false);
+        return;
+      }
       if (dy > 0) {
         eggPullAccumRef.current = Math.min(
           MAX_EGG_PULL,
@@ -1070,9 +1120,9 @@ export default function EntriesPage() {
             const isReturning = isReturnToTopAnimating || returnToTopProgress !== null;
             const isHeaderExpanding = headerExpandProgress !== null;
             const expandProgress = isHeaderExpanding ? (headerExpandProgress ?? 0) : 0;
-            // 回顶过程中 header 保持收缩；到顶后按与回顶相同的 easeOutQuart 曲线展开
+            // 回顶过程中header根据expandProgress同步展开，实现视觉连贯性
             const height =
-              isHeaderExpanding
+              isHeaderExpanding && isReturning
                 ? HEADER_COLLAPSED + (HEADER_EXPANDED - HEADER_COLLAPSED) * expandProgress
                 : isReturning
                   ? HEADER_COLLAPSED
@@ -1080,17 +1130,25 @@ export default function EntriesPage() {
                     ? HEADER_EXPANDED
                     : Math.max(HEADER_COLLAPSED, HEADER_EXPANDED - scrollY);
             let isCollapsed: boolean;
-            if (isHeaderExpanding) {
+            if (isHeaderExpanding && isReturning) {
               isCollapsed = expandProgress < 1;
             } else if (isReturning) {
               isCollapsed = true;
             } else {
               isCollapsed = scrollY >= COLLAPSE_AT;
             }
+            /** 展开层（左对齐大头像+签名）仅在「非收起」或回顶动画展开段完全结束后再显示，避免顶栏高度未拉满时头像已左移 */
+            const useExpandedContent =
+              !isCollapsed ||
+              (isHeaderExpanding && isReturning && expandProgress >= 1);
+            const headerProfileTransitionClass =
+              isHeaderExpanding && isReturning
+                ? "transition-none"
+                : "transition-[transform,opacity] duration-250 ease-out";
             return (
               <header
                 className={`sticky top-0 z-30 w-full overflow-hidden rounded-b-2xl bg-gradient-to-b from-zinc-900 via-zinc-800 to-black transition-[height] ease-out ${
-                  isReturning || isHeaderExpanding ? "duration-0" : "duration-250"
+                  isReturning ? "duration-0" : "duration-250"
                 }`}
                 style={{
                   height: `${height}px`,
@@ -1103,7 +1161,7 @@ export default function EntriesPage() {
                   }}
                 />
                 <div className="absolute inset-0 bg-black/50" />
-                {isCollapsed && !isReturning && !isHeaderExpanding && (
+                {isCollapsed && !isReturning && (
                   <button
                     type="button"
                     className="absolute inset-0 z-10 cursor-pointer"
@@ -1118,82 +1176,48 @@ export default function EntriesPage() {
                   {/* 收缩时：头像+名称从下边缘往上渐显，并在栏内上下居中 */}
                   <div
                     className={`absolute inset-0 flex items-center justify-center px-5 ${
-                      isCollapsed ? "pointer-events-auto" : "pointer-events-none"
+                      isCollapsed && !isHeaderExpanding ? "pointer-events-auto" : "pointer-events-none"
                     }`}
                   >
                     <div
-                      className={`flex transition-[transform,opacity] duration-250 ease-out ${
-                        isCollapsed ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
+                      className={`inline-flex ${headerProfileTransitionClass} ${
+                        useExpandedContent ? "translate-y-2 opacity-0" : "translate-y-0 opacity-100"
                       }`}
                     >
-                      <Link
-                        href="/"
-                        className="flex items-center gap-2"
-                      >
-                        <div className="relative h-7 w-7 shrink-0 overflow-hidden rounded-full border-2 border-white/80 ring-2 ring-white/20">
-                          <Image
-                            src={profile?.avatar || "/avatar.png"}
-                            alt=""
-                            width={28}
-                            height={28}
-                            className="h-full w-full object-cover"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.display = "none";
-                            }}
-                          />
-                        </div>
-                        <p className="whitespace-nowrap text-base font-bold text-white">
-                          {profile?.name ?? "DailyRhapsody"}
-                        </p>
-                      </Link>
+                      <div className="inline-flex max-w-full items-center gap-2">
+                        <Link href="/" className="shrink-0 leading-none" aria-label="首页">
+                          <AvatarLifeRing src={profile?.avatar || "/avatar.png"} size="sm" />
+                        </Link>
+                        <Link href="/" className="inline-flex min-w-0 w-fit self-center">
+                          <p className="whitespace-nowrap text-base font-bold leading-tight text-white">
+                            {profile?.name ?? "DailyRhapsody"}
+                          </p>
+                        </Link>
+                      </div>
                     </div>
                   </div>
                   {/* 展开时：整块内容；收起时头像+名称向下渐隐 */}
                   <div
-                    className={`min-w-0 flex-1 transition-[transform,opacity] duration-250 ease-out ${
-                      isCollapsed
-                        ? "translate-y-1 opacity-0 pointer-events-none"
-                        : "flex flex-col justify-center translate-y-0 opacity-100"
+                    className={`min-w-0 flex-1 ${headerProfileTransitionClass} ${
+                      useExpandedContent
+                        ? "flex flex-col justify-center translate-y-0 opacity-100"
+                        : "translate-y-1 opacity-0 pointer-events-none"
                     }`}
                   >
-                    <Link
-                      href="/"
-                      className="flex items-center gap-4"
-                    >
-                      <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-full border-2 border-white/80 ring-2 ring-white/20">
-                        <Image
-                          src={profile?.avatar || "/avatar.png"}
-                          alt=""
-                          width={64}
-                          height={64}
-                          className="h-full w-full object-cover"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).style.display = "none";
-                          }}
-                        />
+                    <div className="inline-flex w-fit max-w-full shrink-0 items-center gap-4 self-start">
+                      <Link href="/" className="shrink-0 leading-none" aria-label="首页">
+                        <AvatarLifeRing src={profile?.avatar || "/avatar.png"} size="lg" />
+                      </Link>
+                      <div className="flex min-w-0 flex-col justify-center gap-1">
+                        <Link href="/" className="inline-flex w-fit self-start">
+                          <p className="whitespace-nowrap text-lg font-bold text-white">
+                            {profile?.name ?? "DailyRhapsody"}
+                          </p>
+                        </Link>
+                        <p className="max-w-[min(100%,calc(100vw-6rem))] text-xs leading-snug text-white/80">
+                          {profile?.signature ?? "君子论迹不论心"}
+                        </p>
                       </div>
-                      <p className="text-lg font-bold text-white whitespace-nowrap">
-                        {profile?.name ?? "DailyRhapsody"}
-                      </p>
-                    </Link>
-                    <p className="mt-4 text-xs text-white/80">
-                      {profile?.signature ?? "君子论迹不论心"}
-                    </p>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {[
-                        profile?.location ?? "杭州",
-                        profile?.industry ?? "计算机硬件行业",
-                        profile?.zodiac ?? "天秤座",
-                      ]
-                        .filter(Boolean)
-                        .map((tag) => (
-                          <span
-                            key={tag}
-                            className="rounded-lg bg-white/20 px-2 py-0.5 text-[0.7rem] text-white backdrop-blur-sm"
-                          >
-                            {tag}
-                          </span>
-                        ))}
                     </div>
                   </div>
                 </div>
@@ -1213,7 +1237,6 @@ export default function EntriesPage() {
                 isReturnToTopAnimating || (!hasMore && eggPullY > 0 && !isRebounding)
                   ? "transform"
                   : undefined,
-              paddingBottom: !hasMore && (eggPullY > 0 || isRebounding) ? eggPullY + 88 : 0,
             }}
             className={!hasMore && isRebounding ? "rebound-transition" : ""}
           >
@@ -1340,6 +1363,10 @@ export default function EntriesPage() {
                 被你发现了 ✨
               </span>
             </div>
+          )}
+          {/* 固定底部留白替代每帧 paddingBottom，避免回弹时整页反复 reflow */}
+          {totalPosts > 0 && !hasMore && (
+            <div className="h-[140px] shrink-0" aria-hidden />
           )}
           </div>
           </div>

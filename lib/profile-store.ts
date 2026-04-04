@@ -5,9 +5,6 @@ export type Profile = {
   name: string;
   signature: string;
   avatar: string;
-  location: string;
-  industry: string;
-  zodiac: string;
   headerBg: string;
 };
 
@@ -15,19 +12,27 @@ const DEFAULT_PROFILE: Profile = {
   name: "DailyRhapsody",
   signature: "君子论迹不论心",
   avatar: "/avatar.png",
-  location: "杭州",
-  industry: "计算机硬件行业",
-  zodiac: "天秤座",
   headerBg: "/header-bg.png",
 };
+
+function normalizeProfile(raw: unknown): Profile {
+  if (!raw || typeof raw !== "object") return { ...DEFAULT_PROFILE };
+  const o = raw as Record<string, unknown>;
+  return {
+    name: typeof o.name === "string" ? o.name : DEFAULT_PROFILE.name,
+    signature: typeof o.signature === "string" ? o.signature : DEFAULT_PROFILE.signature,
+    avatar: typeof o.avatar === "string" ? o.avatar : DEFAULT_PROFILE.avatar,
+    headerBg: typeof o.headerBg === "string" ? o.headerBg : DEFAULT_PROFILE.headerBg,
+  };
+}
 
 const DATA_DIR = join(process.cwd(), "data");
 const DATA_FILE = join(DATA_DIR, "profile.json");
 
-async function readFromFile(): Promise<Profile | null> {
+async function readFromFile(): Promise<unknown | null> {
   try {
     const raw = await readFile(DATA_FILE, "utf8");
-    return JSON.parse(raw) as Profile;
+    return JSON.parse(raw) as unknown;
   } catch {
     return null;
   }
@@ -40,7 +45,7 @@ async function writeToFile(profile: Profile): Promise<void> {
 
 export async function getProfile(): Promise<Profile> {
   const p = await readFromFile();
-  if (p) return { ...DEFAULT_PROFILE, ...p };
+  if (p) return normalizeProfile(p);
   return { ...DEFAULT_PROFILE };
 }
 
@@ -50,7 +55,7 @@ export async function saveProfile(updates: Partial<Profile>): Promise<Profile> {
   for (const [k, v] of Object.entries(updates)) {
     if (v !== undefined) (filtered as Record<string, unknown>)[k] = v;
   }
-  const next: Profile = { ...current, ...filtered };
+  const next: Profile = normalizeProfile({ ...current, ...filtered });
   await writeToFile(next);
   return next;
 }
