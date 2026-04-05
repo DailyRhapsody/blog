@@ -262,10 +262,6 @@ export default function AdminAnalyticsPage() {
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">访客流量</h1>
-          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-            记录 IP、地理位置、路径、来源、UA、UTM、访客标识与屏幕尺寸。部署在 Vercel 时地区优先使用平台注入头；否则外呼 ipwho.is 补全（公网
-            IP）。
-          </p>
         </div>
         <Link
           href="/admin"
