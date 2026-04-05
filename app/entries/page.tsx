@@ -726,14 +726,12 @@ export default function EntriesPage() {
   const [eggPullY, setEggPullY] = useState(0);
   const [isRebounding, setIsRebounding] = useState(false);
   const [isReturnToTopAnimating, setIsReturnToTopAnimating] = useState(false);
-  const [returnToTopProgress, setReturnToTopProgress] = useState<number | null>(null);
-  const [headerExpandProgress, setHeaderExpandProgress] = useState<number | null>(null);
+  const [isHeaderExpanding, setIsHeaderExpanding] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const contentWrapperRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
   const returnToTopPhaseRef = useRef<0 | 1 | 2>(0);
   const returnToTopRafRef = useRef<number>(0);
-  const returnToTopProgressRef = useRef<number>(0);
-  const headerExpandProgressRef = useRef<number>(0);
   const eggPullAccumRef = useRef(0);
   const eggReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchLastYRef = useRef(0);
@@ -773,85 +771,75 @@ export default function EntriesPage() {
   }, []);
 
   const runReturnToTop = useCallback(() => {
-    if (typeof window === "undefined" || !contentWrapperRef.current) return;
+    if (typeof window === "undefined") return;
     const startY = window.scrollY;
     if (startY <= 0) return;
 
-    returnToTopPhaseRef.current = 1;
-    returnToTopProgressRef.current = 0;
-    setScrollY(startY);
-    setIsReturnToTopAnimating(true);
-    setReturnToTopProgress(0);
-    document.body.style.overflow = "hidden";
+    const HEADER_EXPANDED = 260;
+    const HEADER_COLLAPSED = 56;
 
-    // 动态计算动画时长：基于滚动距离和header高度变化，确保视觉连贯性
-    const HEADER_HEIGHT_RANGE = 260 - 56; // 204px
-    // 算法：让展开过程占据总动画的后30-50%，视觉上更自然
-    const expandRatio = 0.4; // 展开占40%的总时长
-    const totalDuration = Math.min(3500, 800 + 400 * Math.log(1 + startY / 400));
-    const scrollDuration = totalDuration * (1 - expandRatio);
-    const expandDuration = totalDuration * expandRatio;
+    returnToTopPhaseRef.current = 1;
+    setIsReturnToTopAnimating(true);
+
+    // ── Phase 1: 自适应滚动回顶 ──
+    // 对数缩放：近距离快、远距离也不会太慢，上限 1200ms
+    const scrollDuration = Math.min(
+      1200,
+      300 + 180 * Math.log(1 + startY / 200),
+    );
 
     const startT = performance.now();
-    const el = contentWrapperRef.current;
-    // 强 ease-out，末尾更慢，避免最后一段显得突然加速
-    function easeOutQuart(x: number) {
-      return 1 - (1 - x) ** 4;
+
+    function easeOutCubic(x: number) {
+      return 1 - (1 - x) ** 3;
     }
-    function tick(now: number) {
+
+    function scrollTick(now: number) {
       const elapsed = now - startT;
-      const totalProgress = Math.min(elapsed / totalDuration, 1);
+      const progress = Math.min(elapsed / scrollDuration, 1);
+      const eased = easeOutCubic(progress);
 
-      // 计算滚动进度和展开进度
-      let scrollProgress = 0;
-      let expandProgress = 0;
+      window.scrollTo(0, Math.round(startY * (1 - eased)));
 
-      if (totalProgress < 1 - expandRatio) {
-        // 前段：滚动回顶
-        scrollProgress = totalProgress / (1 - expandRatio);
-        scrollProgress = easeOutQuart(scrollProgress);
-        expandProgress = 0;
+      if (progress < 1) {
+        returnToTopRafRef.current = requestAnimationFrame(scrollTick);
       } else {
-        // 后段：展开header
-        scrollProgress = 1;
-        const expandElapsed = elapsed - scrollDuration;
-        expandProgress = Math.min(expandElapsed / expandDuration, 1);
-        expandProgress = easeOutQuart(expandProgress);
-      }
-
-      // 执行滚动
-      const offset = startY * (1 - scrollProgress);
-      if (el.style) {
-        el.style.willChange = "transform";
-        el.style.transform = `translateY(-${offset}px)`;
-      }
-
-      returnToTopProgressRef.current = totalProgress;
-      setReturnToTopProgress(totalProgress);
-      headerExpandProgressRef.current = expandProgress;
-      setHeaderExpandProgress(expandProgress);
-
-      if (totalProgress < 1) {
-        returnToTopRafRef.current = requestAnimationFrame(tick);
-      } else {
-        // 先在 overflow:hidden 状态下把真实滚动位置归零，
-        // 再移除 transform、恢复 overflow，避免浏览器先渲染 startY 再跳到 0 的两次回弹
+        // ── Phase 2: JS 驱动展开 header ──
+        // 逐帧控制高度，不依赖 CSS transition，完全避免卡顿
         window.scrollTo(0, 0);
-        el.style.willChange = "";
-        el.style.transform = "";
-        document.body.style.overflow = "";
-        setIsReturnToTopAnimating(false);
-        returnToTopProgressRef.current = 0;
-        setReturnToTopProgress(null);
         setScrollY(0);
-        setHeaderExpandProgress(null);
-        headerExpandProgressRef.current = 0;
-        returnToTopPhaseRef.current = 0;
+        returnToTopPhaseRef.current = 2;
+        // 触发 isCollapsed=false → CSS 头像滑动开始（duration-400 同步）
+        setIsHeaderExpanding(true);
+
+        const EXPAND_MS = 400;
+        const expandStart = performance.now();
+
+        function expandTick(now: number) {
+          const elapsed = now - expandStart;
+          const p = Math.min(elapsed / EXPAND_MS, 1);
+          const eased = easeOutCubic(p);
+
+          const h = HEADER_COLLAPSED + (HEADER_EXPANDED - HEADER_COLLAPSED) * eased;
+          if (headerRef.current) {
+            headerRef.current.style.height = `${h}px`;
+          }
+
+          if (p < 1) {
+            returnToTopRafRef.current = requestAnimationFrame(expandTick);
+          } else {
+            // 展开完毕，交还给 React
+            setIsReturnToTopAnimating(false);
+            setIsHeaderExpanding(false);
+            returnToTopPhaseRef.current = 0;
+          }
+        }
+
+        returnToTopRafRef.current = requestAnimationFrame(expandTick);
       }
     }
-    requestAnimationFrame(() => {
-      returnToTopRafRef.current = requestAnimationFrame(tick);
-    });
+
+    returnToTopRafRef.current = requestAnimationFrame(scrollTick);
   }, []);
 
   useEffect(() => {
@@ -1117,38 +1105,27 @@ export default function EntriesPage() {
             const threshold = HEADER_EXPANDED - HEADER_COLLAPSED;
             const COLLAPSE_AT = threshold + 10;
             const nearTop = scrollY < 28;
-            const isReturning = isReturnToTopAnimating || returnToTopProgress !== null;
-            const isHeaderExpanding = headerExpandProgress !== null;
-            const expandProgress = isHeaderExpanding ? (headerExpandProgress ?? 0) : 0;
-            // 回顶过程中header根据expandProgress同步展开，实现视觉连贯性
-            const height =
-              isHeaderExpanding && isReturning
-                ? HEADER_COLLAPSED + (HEADER_EXPANDED - HEADER_COLLAPSED) * expandProgress
-                : isReturning
-                  ? HEADER_COLLAPSED
-                  : nearTop
-                    ? HEADER_EXPANDED
-                    : Math.max(HEADER_COLLAPSED, HEADER_EXPANDED - scrollY);
-            let isCollapsed: boolean;
-            if (isHeaderExpanding && isReturning) {
-              isCollapsed = expandProgress < 1;
-            } else if (isReturning) {
-              isCollapsed = true;
-            } else {
-              isCollapsed = scrollY >= COLLAPSE_AT;
-            }
-            /** 展开层（左对齐大头像+签名）仅在「非收起」或回顶动画展开段完全结束后再显示，避免顶栏高度未拉满时头像已左移 */
-            const useExpandedContent =
-              !isCollapsed ||
-              (isHeaderExpanding && isReturning && expandProgress >= 1);
-            const headerProfileTransitionClass =
-              isHeaderExpanding && isReturning
-                ? "transition-none"
-                : "transition-[transform,opacity] duration-250 ease-out";
+            const isReturning = isReturnToTopAnimating;
+            const signatureTrimmed = profile?.signature?.trim() ?? "";
+            const hasSignature = signatureTrimmed.length > 0;
+
+            // Phase 1 (滚动中): 锁定收缩
+            // Phase 2 (展开中): JS 驱动高度（通过 headerRef），React 侧保持 COLLAPSED 不干扰
+            // 正常: 基于 scrollY
+            const height = isReturning
+              ? HEADER_COLLAPSED
+              : nearTop
+                ? HEADER_EXPANDED
+                : Math.max(HEADER_COLLAPSED, HEADER_EXPANDED - scrollY);
+            // Phase 2 时 isCollapsed=false → 触发头像从居中滑向左侧
+            const isCollapsed = isReturning && !isHeaderExpanding
+              ? true
+              : scrollY >= COLLAPSE_AT;
             return (
               <header
+                ref={headerRef}
                 className={`sticky top-0 z-30 w-full overflow-hidden rounded-b-2xl bg-gradient-to-b from-zinc-900 via-zinc-800 to-black transition-[height] ease-out ${
-                  isReturning ? "duration-0" : "duration-250"
+                  isReturning ? "duration-0" : "duration-300"
                 }`}
                 style={{
                   height: `${height}px`,
@@ -1165,10 +1142,7 @@ export default function EntriesPage() {
                   <button
                     type="button"
                     className="absolute inset-0 z-10 cursor-pointer"
-                    onClick={() => {
-                      returnToTopPhaseRef.current = 1;
-                      runReturnToTop();
-                    }}
+                    onClick={runReturnToTop}
                     aria-label="回到顶部并展开"
                   />
                 )}
@@ -1176,12 +1150,12 @@ export default function EntriesPage() {
                   {/* 收缩时：头像+名称从下边缘往上渐显，并在栏内上下居中 */}
                   <div
                     className={`absolute inset-0 flex items-center justify-center px-5 ${
-                      isCollapsed && !isHeaderExpanding ? "pointer-events-auto" : "pointer-events-none"
+                      isCollapsed ? "pointer-events-auto" : "pointer-events-none"
                     }`}
                   >
                     <div
-                      className={`inline-flex ${headerProfileTransitionClass} ${
-                        useExpandedContent ? "translate-y-2 opacity-0" : "translate-y-0 opacity-100"
+                      className={`inline-flex transition-[transform,opacity] duration-400 ease-out ${
+                        isCollapsed ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
                       }`}
                     >
                       <div className="inline-flex max-w-full items-center gap-2">
@@ -1198,25 +1172,38 @@ export default function EntriesPage() {
                   </div>
                   {/* 展开时：整块内容；收起时头像+名称向下渐隐 */}
                   <div
-                    className={`min-w-0 flex-1 ${headerProfileTransitionClass} ${
-                      useExpandedContent
-                        ? "flex flex-col justify-center translate-y-0 opacity-100"
-                        : "translate-y-1 opacity-0 pointer-events-none"
+                    className={`min-w-0 flex-1 transition-[transform,opacity] duration-400 ease-out ${
+                      isCollapsed
+                        ? "translate-y-1 opacity-0 pointer-events-none"
+                        : "flex flex-col justify-center translate-y-0 opacity-100"
                     }`}
                   >
-                    <div className="inline-flex w-fit max-w-full shrink-0 items-center gap-4 self-start">
+                    <div
+                      className={`inline-flex w-fit max-w-full shrink-0 items-center gap-4 ${
+                        hasSignature ? "self-start" : "self-center mx-auto"
+                      }`}
+                    >
                       <Link href="/" className="shrink-0 leading-none" aria-label="首页">
                         <AvatarLifeRing src={profile?.avatar || "/avatar.png"} size="lg" />
                       </Link>
-                      <div className="flex min-w-0 flex-col justify-center gap-1">
-                        <Link href="/" className="inline-flex w-fit self-start">
+                      <div
+                        className={`flex min-w-0 flex-col justify-center gap-1 ${
+                          hasSignature ? "" : "items-center text-center"
+                        }`}
+                      >
+                        <Link
+                          href="/"
+                          className={`inline-flex w-fit ${hasSignature ? "self-start" : "self-center"}`}
+                        >
                           <p className="whitespace-nowrap text-lg font-bold text-white">
                             {profile?.name ?? "DailyRhapsody"}
                           </p>
                         </Link>
-                        <p className="max-w-[min(100%,calc(100vw-6rem))] text-xs leading-snug text-white/80">
-                          {profile?.signature ?? "君子论迹不论心"}
-                        </p>
+                        {hasSignature && (
+                          <p className="max-w-[min(100%,calc(100vw-6rem))] self-start text-left text-xs leading-snug text-white/80">
+                            {signatureTrimmed}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1228,15 +1215,12 @@ export default function EntriesPage() {
           <div
             ref={contentWrapperRef}
             style={{
-              transform: isReturnToTopAnimating
-                ? undefined
-                : !hasMore && (eggPullY > 0 || isRebounding)
-                  ? `translate3d(0, -${eggPullY}px, 0)`
-                  : undefined,
-              willChange:
-                isReturnToTopAnimating || (!hasMore && eggPullY > 0 && !isRebounding)
-                  ? "transform"
-                  : undefined,
+              transform: !hasMore && (eggPullY > 0 || isRebounding)
+                ? `translate3d(0, -${eggPullY}px, 0)`
+                : undefined,
+              willChange: !hasMore && eggPullY > 0 && !isRebounding
+                ? "transform"
+                : undefined,
             }}
             className={!hasMore && isRebounding ? "rebound-transition" : ""}
           >

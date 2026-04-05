@@ -2,275 +2,260 @@
 
 import { useEffect, useRef } from "react";
 
-const GRID = 24;
-const REVISIT_WINDOW_MS = 3200;
-const MIN_SPEED_PX_S = 28;
+/* ── 手势识别配置 ── */
+const BEARING_BINS = 8;
+const MIN_SPEED_PX_S = 18;
 const MAX_SPEED_PX_S = 2600;
-const MIN_WARMUP_QUALIFIED_PX = 90;
-const MIN_CELL_PASSES = 4;
-const CLICK_SUPPRESS_MS = 500;
-const HUE_DEG_PER_PX = 2.4;
-const MICRO_STEP_PX = 2;
-const MAX_MICRO_STEPS = 64;
-const TRAIL_FADE_DEST_OUT = 0.04;
-const IDLE_RESET_MS = 550;
-const MAX_FADE_FRAMES = 96;
-const MAX_CELL_KEYS = 400;
+const MIN_WARMUP_PX = 52;
+const MIN_SEG_FOR_BIN = 3;
+const GESTURE_BUF_MAX = 36;
 
-function cellKey(x: number, y: number) {
-  return `${Math.floor(x / GRID)}_${Math.floor(y / GRID)}`;
+/* ── 渲染配置 ── */
+const LIFE_MS = 400;
+const MIN_DIST = 2;
+const BASE_R = 2.6;
+const DOT_STEP = 1.8;
+const CYCLE_PX = 240;
+const MAX_PTS = 500;
+const CLICK_COOL_MS = 400;
+const IDLE_MS = 500;
+
+/* ── sRGB 彩虹色标 ── */
+const STOPS: [number, number, number][] = [
+  [255, 50, 80],
+  [255, 150, 40],
+  [255, 225, 50],
+  [80, 225, 110],
+  [50, 195, 255],
+  [105, 115, 255],
+  [175, 80, 255],
+  [255, 65, 155],
+];
+
+function rainbowRgb(t: number): [number, number, number] {
+  const n = STOPS.length;
+  const p = ((t % 1) + 1) % 1;
+  const f = p * (n - 1);
+  const i = Math.min(f | 0, n - 2);
+  const u = f - i;
+  return [
+    (STOPS[i][0] + (STOPS[i + 1][0] - STOPS[i][0]) * u + 0.5) | 0,
+    (STOPS[i][1] + (STOPS[i + 1][1] - STOPS[i][1]) * u + 0.5) | 0,
+    (STOPS[i][2] + (STOPS[i + 1][2] - STOPS[i][2]) * u + 0.5) | 0,
+  ];
 }
 
-function isInteractiveTarget(n: EventTarget | null): boolean {
-  if (!(n instanceof Element)) return false;
-  return !!n.closest(
-    "button, a, input, textarea, select, option, label, summary, [role='button'], [role='tab'], [role='menuitem'], [role='link'], [contenteditable='true']",
-  );
+/* ── 手势识别（8方位 bin） ── */
+const TAU = Math.PI * 2;
+
+function bearingBin8(dx: number, dy: number): number {
+  const a = Math.atan2(dy, dx);
+  return Math.min(BEARING_BINS - 1, Math.floor((((a % TAU) + TAU) % TAU) / TAU * BEARING_BINS));
 }
 
-function recentCount(map: Map<string, number[]>, key: string, now: number): number {
-  const arr = map.get(key);
-  if (!arr?.length) return 0;
-  return arr.filter((tm) => now - tm <= REVISIT_WINDOW_MS).length;
+function signedBinDelta(prev: number, next: number): number {
+  let d = next - prev;
+  if (d > 4) d -= BEARING_BINS;
+  if (d < -4) d += BEARING_BINS;
+  return d;
 }
 
-function bumpCell(map: Map<string, number[]>, key: string, now: number): number {
-  let arr = map.get(key) ?? [];
-  arr.push(now);
-  arr = arr.filter((tm) => now - tm <= REVISIT_WINDOW_MS);
-  map.set(key, arr);
-  if (map.size > MAX_CELL_KEYS) {
-    const first = map.keys().next().value;
-    if (first !== undefined) map.delete(first);
+/** 振荡检测：左右反复大掉头 */
+function detectOscillation(bins: number[]): number {
+  if (bins.length < 6) return 0;
+  const s = bins.slice(-14);
+  let sharp = 0;
+  for (let i = 1; i < s.length; i++) {
+    if (Math.abs(signedBinDelta(s[i - 1]!, s[i]!)) >= 3) sharp++;
   }
-  return arr.length;
+  return sharp >= 4 ? 4 : sharp >= 3 ? 3 : 0;
 }
 
-function strokeSmoothRainbow(
-  paint: CanvasRenderingContext2D,
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number,
-  lineW: number,
-  alpha: number,
-  hueBase: number,
-): number {
-  const dx = x1 - x0;
-  const dy = y1 - y0;
-  const d = Math.hypot(dx, dy);
-  if (d < 0.12) return hueBase;
-
-  const n = Math.min(MAX_MICRO_STEPS, Math.max(1, Math.ceil(d / MICRO_STEP_PX)));
-  let sx = x0;
-  let sy = y0;
-  let hue = hueBase;
-
-  paint.lineCap = "round";
-  paint.lineJoin = "round";
-
-  for (let i = 1; i <= n; i++) {
-    const t = i / n;
-    const x = x0 + dx * t;
-    const y = y0 + dy * t;
-    const stepLen = Math.hypot(x - sx, y - sy);
-    if (stepLen < 0.01) continue;
-    paint.strokeStyle = `hsla(${hue % 360}, 96%, 54%, ${alpha})`;
-    paint.lineWidth = lineW;
-    paint.beginPath();
-    paint.moveTo(sx, sy);
-    paint.lineTo(x, y);
-    paint.stroke();
-    hue += HUE_DEG_PER_PX * stepLen;
-    sx = x;
-    sy = y;
+/** 画圈检测：持续同向拐弯 */
+function detectWinding(bins: number[]): number {
+  if (bins.length < 8) return 0;
+  const s = bins.slice(-22);
+  let totalAbs = 0;
+  let net = 0;
+  for (let i = 1; i < s.length; i++) {
+    const d = signedBinDelta(s[i - 1]!, s[i]!);
+    net += d;
+    totalAbs += Math.abs(d);
   }
-
-  return hue % 360;
+  if (Math.abs(net) >= 4 && totalAbs >= 6)
+    return Math.min(6, 3 + Math.floor(Math.abs(net) / 2));
+  if (totalAbs >= 11) return 4;
+  return 0;
 }
+
+function gestureQuality(bins: number[]): number {
+  return Math.max(detectOscillation(bins), detectWinding(bins));
+}
+
+/* ── 轨迹点 ── */
+interface Pt { x: number; y: number; t: number; d: number }
 
 export default function RainbowBrushTrail() {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const ref = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const cvs = ref.current;
+    if (!cvs) return;
+    const ctx = cvs.getContext("2d", { alpha: true });
+    if (!ctx) return;
 
-    function resize() {
-      const node = canvasRef.current;
-      const c = node?.getContext("2d", { alpha: true });
-      if (!node || !c) return;
-      w = window.innerWidth;
-      h = window.innerHeight;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      node.width = Math.floor(w * dpr);
-      node.height = Math.floor(h * dpr);
-      node.style.width = `${w}px`;
-      node.style.height = `${h}px`;
-      c.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-
-    if (!canvasRef.current) return;
-    const ctxMaybe = canvasRef.current.getContext("2d", { alpha: true });
-    if (!ctxMaybe) return;
-    const paint = ctxMaybe;
-
-    let w = 0;
-    let h = 0;
+    let W = 0;
+    let H = 0;
+    const resize = () => {
+      W = innerWidth;
+      H = innerHeight;
+      const dpr = Math.min(devicePixelRatio || 1, 2);
+      cvs.width = (W * dpr) | 0;
+      cvs.height = (H * dpr) | 0;
+      cvs.style.width = `${W}px`;
+      cvs.style.height = `${H}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
     resize();
-    window.addEventListener("resize", resize);
+    addEventListener("resize", resize);
 
-    let lastX = 0;
-    let lastY = 0;
-    let lastT = 0;
-    let hasLast = false;
-    let lastMoveAt = 0;
-    const cellStamps = new Map<string, number[]>();
-    let rainbowPhase = 0;
-    let sessionQualifiedDist = 0;
-    let suppressBrushUntil = 0;
-    let rafLoop = 0;
-    let pending: { x: number; y: number; now: number; buttons: number } | null =
-      null;
-    let fadeFramesLeft = 0;
+    /* ── 状态 ── */
+    const pts: Pt[] = [];          // 渲染用轨迹点
+    const gestureBins: number[] = [];
+    let lx = 0, ly = 0, lt = 0;
+    let hasPrev = false;
+    let cumDist = 0;               // 渲染色相累距
+    let qualifiedDist = 0;         // 手势识别累距
+    let raf = 0;
+    let lastMove = 0;
+    let suppressUntil = 0;
+    let streamActive = false;      // 手势已识别，持续绘制
+    let quality = 0;
 
-    function onPointerDownCapture() {
-      suppressBrushUntil = performance.now() + CLICK_SUPPRESS_MS;
-      sessionQualifiedDist *= 0.15;
-      cellStamps.clear();
-      rainbowPhase = 0;
+    function resetAll() {
+      pts.length = 0;
+      gestureBins.length = 0;
+      hasPrev = false;
+      cumDist = 0;
+      qualifiedDist = 0;
+      streamActive = false;
+      quality = 0;
     }
 
-    function onMove(e: MouseEvent) {
+    const onMove = (e: MouseEvent) => {
+      if (e.buttons) { streamActive = false; return; }
       const now = performance.now();
-      if (now - lastMoveAt > IDLE_RESET_MS) {
-        hasLast = false;
-        cellStamps.clear();
-        rainbowPhase = 0;
-        sessionQualifiedDist = 0;
-      }
-      lastMoveAt = now;
-      pending = {
-        x: e.clientX,
-        y: e.clientY,
-        now,
-        buttons: e.buttons,
-      };
-      fadeFramesLeft = MAX_FADE_FRAMES;
-      if (!rafLoop) rafLoop = requestAnimationFrame(tick);
-    }
+      if (now < suppressUntil) return;
+      const x = e.clientX, y = e.clientY;
 
-    function tick() {
-      rafLoop = 0;
+      if (now - lastMove > IDLE_MS) resetAll();
+      lastMove = now;
 
-      paint.save();
-      paint.globalCompositeOperation = "destination-out";
-      paint.fillStyle = `rgba(0,0,0,${TRAIL_FADE_DEST_OUT})`;
-      paint.fillRect(0, 0, w, h);
-      paint.restore();
+      if (!hasPrev) { lx = x; ly = y; lt = now; hasPrev = true; return; }
 
-      if (pending) {
-        const { x, y, now: moveT, buttons } = pending;
-        pending = null;
+      const dx = x - lx, dy = y - ly;
+      const dist = Math.hypot(dx, dy);
+      if (dist < MIN_DIST) return;
 
-        const under = document.elementFromPoint(x, y);
-        const onControl = isInteractiveTarget(under);
-        const afterClickCooldown = moveT >= suppressBrushUntil;
-        const dtMs = hasLast ? Math.max(moveT - lastT, 1) : 16;
+      const dt = Math.max(now - lt, 1);
+      const speed = (dist / dt) * 1000;
 
-        if (hasLast) {
-          const dx = x - lastX;
-          const dy = y - lastY;
-          const dist = Math.hypot(dx, dy);
-          if (dist > 0.35) {
-            const speed = (dist / dtMs) * 1000;
-            const speedOk =
-              speed >= MIN_SPEED_PX_S && speed <= MAX_SPEED_PX_S;
-            const qualify =
-              !onControl &&
-              afterClickCooldown &&
-              buttons === 0 &&
-              speedOk;
-
-            if (qualify) {
-              sessionQualifiedDist += dist;
-              const prevKey = cellKey(lastX, lastY);
-              const currKey = cellKey(x, y);
-              const prevPasses = recentCount(cellStamps, prevKey, moveT);
-              const currPassesAfter = bumpCell(cellStamps, currKey, moveT);
-
-              const warmedUp = sessionQualifiedDist >= MIN_WARMUP_QUALIFIED_PX;
-              const revisitOk =
-                prevKey === currKey
-                  ? currPassesAfter >= MIN_CELL_PASSES
-                  : prevPasses >= MIN_CELL_PASSES &&
-                    currPassesAfter >= MIN_CELL_PASSES;
-
-              if (warmedUp && revisitOk) {
-                const depth = Math.min(
-                  prevKey === currKey
-                    ? currPassesAfter
-                    : Math.min(prevPasses, currPassesAfter),
-                  22,
-                );
-                const alpha = Math.min(0.88, 0.2 + depth * 0.03);
-                const lineW = 1.3 + depth * 0.36;
-
-                paint.save();
-                paint.globalCompositeOperation = "source-over";
-                rainbowPhase = strokeSmoothRainbow(
-                  paint,
-                  lastX,
-                  lastY,
-                  x,
-                  y,
-                  lineW,
-                  alpha,
-                  rainbowPhase,
-                );
-                paint.restore();
-              }
-            }
-          }
-        } else {
-          hasLast = true;
+      /* ── 手势采样：速度在合理范围内才计入 bin ── */
+      if (speed >= MIN_SPEED_PX_S && speed <= MAX_SPEED_PX_S) {
+        qualifiedDist += dist;
+        if (dist >= MIN_SEG_FOR_BIN) {
+          gestureBins.push(bearingBin8(dx, dy));
+          while (gestureBins.length > GESTURE_BUF_MAX) gestureBins.shift();
         }
-
-        lastX = x;
-        lastY = y;
-        lastT = moveT;
+        // 累计足够距离后尝试识别
+        if (qualifiedDist >= MIN_WARMUP_PX) {
+          const q = gestureQuality(gestureBins);
+          if (q > 0) {
+            streamActive = true;
+            quality = Math.max(quality, q, 3);
+          }
+        }
       }
 
-      if (pending) {
-        fadeFramesLeft = MAX_FADE_FRAMES;
-      } else if (fadeFramesLeft > 0) {
-        fadeFramesLeft -= 1;
+      /* ── 如果手势已激活 → 记录渲染点 ── */
+      if (streamActive) {
+        cumDist += dist;
+        pts.push({ x, y, t: now, d: cumDist });
+        if (pts.length > MAX_PTS) pts.splice(0, pts.length - MAX_PTS);
       }
 
-      const keepLoop = pending !== null || fadeFramesLeft > 0;
-      if (keepLoop) {
-        rafLoop = requestAnimationFrame(tick);
-      } else {
-        cellStamps.clear();
-        rainbowPhase = 0;
-        sessionQualifiedDist = 0;
-      }
-    }
+      lx = x; ly = y; lt = now;
+      if (!raf) raf = requestAnimationFrame(draw);
+    };
 
-    window.addEventListener("mousemove", onMove, { passive: true });
-    window.addEventListener("pointerdown", onPointerDownCapture, true);
+    const draw = () => {
+      raf = 0;
+      const now = performance.now();
+
+      while (pts.length && now - pts[0].t > LIFE_MS) pts.shift();
+      ctx.clearRect(0, 0, W, H);
+
+      if (pts.length < 2) {
+        if (pts.length) raf = requestAnimationFrame(draw);
+        return;
+      }
+
+      const depth = Math.min(quality + 2, 22);
+      const baseAlpha = Math.min(0.82, 0.22 + depth * 0.028);
+      const baseR = BASE_R * (0.6 + depth * 0.04);
+      const C = 6.2832;
+
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1], b = pts[i];
+        const segLen = Math.hypot(b.x - a.x, b.y - a.y);
+        if (segLen < 0.01) continue;
+
+        const steps = Math.max(1, Math.ceil(segLen / DOT_STEP));
+        for (let s = 0; s <= steps; s++) {
+          const frac = s / steps;
+          const px = a.x + (b.x - a.x) * frac;
+          const py = a.y + (b.y - a.y) * frac;
+          const pt = a.t + (b.t - a.t) * frac;
+          const pd = a.d + (b.d - a.d) * frac;
+
+          const life = Math.max(0, 1 - (now - pt) / LIFE_MS);
+          if (life <= 0) continue;
+
+          const alpha = life * life * baseAlpha;
+          const r = baseR * (0.25 + 0.75 * life);
+          const [cr, cg, cb] = rainbowRgb(pd / CYCLE_PX);
+
+          ctx.beginPath();
+          ctx.arc(px, py, r, 0, C);
+          ctx.fillStyle = `rgba(${cr},${cg},${cb},${alpha})`;
+          ctx.fill();
+        }
+      }
+
+      raf = requestAnimationFrame(draw);
+    };
+
+    const onDown = () => {
+      resetAll();
+      suppressUntil = performance.now() + CLICK_COOL_MS;
+    };
+
+    addEventListener("mousemove", onMove, { passive: true });
+    addEventListener("pointerdown", onDown, true);
 
     return () => {
-      window.removeEventListener("resize", resize);
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("pointerdown", onPointerDownCapture, true);
-      if (rafLoop) cancelAnimationFrame(rafLoop);
+      removeEventListener("resize", resize);
+      removeEventListener("mousemove", onMove);
+      removeEventListener("pointerdown", onDown, true);
+      if (raf) cancelAnimationFrame(raf);
     };
   }, []);
 
   return (
     <canvas
-      ref={canvasRef}
+      ref={ref}
       className="pointer-events-none fixed inset-0 z-[9998]"
       aria-hidden
     />
