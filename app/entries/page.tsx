@@ -8,6 +8,7 @@ import { formatDate12h } from "@/lib/format";
 import { markdownPreviewProseClass, renderMarkdown } from "@/lib/markdown";
 import { createShareCardElement } from "@/lib/share-card";
 import AvatarLifeRing from "@/components/AvatarLifeRing";
+import RainbowBrushTrail from "@/components/RainbowBrushTrail";
 
 type Diary = {
   id: number;
@@ -1093,6 +1094,7 @@ export default function EntriesPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-zinc-100 to-white font-sans text-zinc-900 dark:from-black dark:via-zinc-950 dark:to-black dark:text-zinc-50">
+      <RainbowBrushTrail />
       <div className="entries-flip-wrapper">
         <main
           id="entries"
