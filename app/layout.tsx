@@ -30,6 +30,15 @@ export default function RootLayout({
       >
         {children}
         <AnalyticsCollector />
+        {/* Anti-Scrape Honeypot */}
+        <a 
+          href="/api/honeypot" 
+          aria-hidden="true" 
+          tabIndex={-1} 
+          style={{ position: 'absolute', top: -100, left: -100, width: 1, height: 1, overflow: 'hidden', opacity: 0 }}
+        >
+          DailyRhapsody Feed
+        </a>
       </body>
     </html>
   );

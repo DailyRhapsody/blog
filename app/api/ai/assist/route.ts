@@ -16,7 +16,7 @@ export async function POST(req: Request) {
     scope: "ai:assist",
     limit: 30,
     windowMs: 60_000,
-    blockSuspiciousUa: false,
+    blockSuspicious: false,
   });
   if (blocked) return blocked;
 

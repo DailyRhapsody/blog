@@ -9,7 +9,7 @@ export async function POST(req: Request) {
     scope: "auth:login",
     limit: 12,
     windowMs: 900_000,
-    blockSuspiciousUa: false,
+    blockSuspicious: false,
   });
   if (blocked) return blocked;
 

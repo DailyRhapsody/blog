@@ -43,7 +43,8 @@ export async function POST(req: Request) {
     scope: "analytics:collect",
     limit: 240,
     windowMs: 60_000,
-    blockSuspiciousUa: false,
+    blockSuspicious: false,
+    checkOrigin: false,
   });
   if (blocked) return blocked;
 

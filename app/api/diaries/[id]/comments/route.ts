@@ -31,7 +31,7 @@ export async function POST(
     scope: "comments:create",
     limit: 20,
     windowMs: 60_000,
-    blockSuspiciousUa: false,
+    blockSuspicious: false,
   });
   if (blocked) return blocked;
   const { id } = await params;

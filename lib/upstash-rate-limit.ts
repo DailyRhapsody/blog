@@ -9,21 +9,29 @@ const redis =
     ? new Redis({ url, token })
     : null;
 
-const limiter = redis
-  ? new Ratelimit({
-      redis,
-      limiter: Ratelimit.slidingWindow(120, "1 m"),
-      prefix: "dr:rl",
-      analytics: false,
-    })
-  : null;
+const limiters = new Map<string, Ratelimit>();
 
-export function isUpstashConfigured(): boolean {
-  return !!limiter;
+function getLimiter(scope: string, limit: number = 60, window: string = "1 m") {
+  if (!redis) return null;
+  const key = `${scope}:${limit}:${window}`;
+  if (!limiters.has(key)) {
+    limiters.set(key, new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(limit, window as any),
+      prefix: `dr:rl:${scope}`,
+      analytics: false,
+    }));
+  }
+  return limiters.get(key)!;
 }
 
-export async function limitByIp(scope: string, ip: string): Promise<boolean> {
-  if (!limiter) return true;
-  const { success } = await limiter.limit(`${scope}:${ip}`);
+export function isUpstashConfigured(): boolean {
+  return !!redis;
+}
+
+export async function limitByIp(scope: string, ip: string, limit?: number, window?: string): Promise<boolean> {
+  const l = getLimiter(scope, limit, window);
+  if (!l) return true;
+  const { success } = await l.limit(ip);
   return success;
 }
