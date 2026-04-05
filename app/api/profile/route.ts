@@ -27,6 +27,8 @@ export async function PUT(req: Request) {
     signature: string;
     avatar: string;
     headerBg: string;
+    homeCoverUrl: string;
+    homeCoverIsVideo: boolean;
   }>;
   try {
     body = await req.json();
@@ -38,6 +40,8 @@ export async function PUT(req: Request) {
     signature: body.signature,
     avatar: body.avatar,
     headerBg: body.headerBg,
+    homeCoverUrl: body.homeCoverUrl,
+    homeCoverIsVideo: body.homeCoverIsVideo,
   });
   return NextResponse.json(profile);
 }

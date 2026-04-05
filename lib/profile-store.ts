@@ -6,6 +6,10 @@ export type Profile = {
   signature: string;
   avatar: string;
   headerBg: string;
+  /** 首页 / 封面背景；空字符串则用内置默认图 */
+  homeCoverUrl: string;
+  /** true 时 homeCoverUrl 为视频（MP4/WebM 等） */
+  homeCoverIsVideo: boolean;
 };
 
 const DEFAULT_PROFILE: Profile = {
@@ -13,6 +17,8 @@ const DEFAULT_PROFILE: Profile = {
   signature: "君子论迹不论心",
   avatar: "/avatar.png",
   headerBg: "/header-bg.png",
+  homeCoverUrl: "",
+  homeCoverIsVideo: false,
 };
 
 function normalizeProfile(raw: unknown): Profile {
@@ -23,6 +29,12 @@ function normalizeProfile(raw: unknown): Profile {
     signature: typeof o.signature === "string" ? o.signature : DEFAULT_PROFILE.signature,
     avatar: typeof o.avatar === "string" ? o.avatar : DEFAULT_PROFILE.avatar,
     headerBg: typeof o.headerBg === "string" ? o.headerBg : DEFAULT_PROFILE.headerBg,
+    homeCoverUrl:
+      typeof o.homeCoverUrl === "string" ? o.homeCoverUrl : DEFAULT_PROFILE.homeCoverUrl,
+    homeCoverIsVideo:
+      typeof o.homeCoverIsVideo === "boolean"
+        ? o.homeCoverIsVideo
+        : DEFAULT_PROFILE.homeCoverIsVideo,
   };
 }
 

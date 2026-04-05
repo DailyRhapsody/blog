@@ -98,6 +98,10 @@ export function ensureTagLinesForEdit(
   return trimmedEnd ? `${trimmedEnd}\n\n${suffix}` : suffix;
 }
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function mapOutsideFencedBlocks(src: string, fn: (prose: string) => string): string {
   let result = "";
   let last = 0;
@@ -121,7 +125,10 @@ export function removeHashtagFromMarkdown(text: string, tag: string): string {
   if (!t) return text ?? "";
   const src = (text ?? "").replace(/\r\n/g, "\n");
   const boundary = String.raw`[\s\u3000,，.;；:：!！?？。、（）()\[\]【】《》「」]`;
-  const re = new RegExp(String.raw`(^|${boundary})#${t}(?=$|${boundary})`, "gmu");
+  const re = new RegExp(
+    String.raw`(^|${boundary})#${escapeRegExp(t)}(?=$|${boundary})`,
+    "gmu",
+  );
 
   return mapOutsideFencedBlocks(src, (chunk) => {
     // 行内代码整体忽略：把每段 `...` 临时换成占位符
@@ -149,4 +156,62 @@ export function removeHashtagFromMarkdown(text: string, tag: string): string {
     prose = prose.replace(/\u0000C(\d+)\u0000/g, (_m, idx) => codes[Number(idx)] ?? "");
     return prose;
   });
+}
+
+/**
+ * 将正文中的 `#from` 换成 `#to`（围栏外、行内代码外），规则与 {@link removeHashtagFromMarkdown} 一致。
+ */
+export function replaceHashtagInMarkdown(
+  text: string,
+  fromTag: string,
+  toTag: string,
+): string {
+  const f = (fromTag ?? "").trim();
+  const t = (toTag ?? "").trim();
+  if (!f || !t || f === t) return text ?? "";
+  const src = (text ?? "").replace(/\r\n/g, "\n");
+  const boundary = String.raw`[\s\u3000,，.;；:：!！?？。、（）()\[\]【】《》「」]`;
+  const re = new RegExp(
+    String.raw`(^|${boundary})#${escapeRegExp(f)}(?=$|${boundary})`,
+    "gmu",
+  );
+
+  return mapOutsideFencedBlocks(src, (chunk) => {
+    const codes: string[] = [];
+    let prose = chunk.replace(INLINE_CODE_RE, (m) => {
+      codes.push(m);
+      return `\u0000C${codes.length - 1}\u0000`;
+    });
+
+    const lines = prose.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!LINE_ONLY_HASHTAGS_RE.test(line)) continue;
+      const parts = line.trim().split(/\s+/).filter(Boolean);
+      const next = parts.map((p) => (p === `#${f}` ? `#${t}` : p));
+      lines[i] = next.join(" ");
+    }
+    prose = lines.join("\n");
+
+    prose = prose.replace(re, (_full, p1: string) => `${p1}#${t}`);
+
+    prose = prose.replace(/\u0000C(\d+)\u0000/g, (_m, idx) => codes[Number(idx)] ?? "");
+    return prose;
+  });
+}
+
+/**
+ * 将标签 A 统一为 B：正文中所有 `#A` → `#B`；若该篇已有 `#B`，则只删除 `#A`（不重复 B）。
+ */
+export function mergeRenameTagInMarkdown(text: string, fromTag: string, toTag: string): string {
+  const f = (fromTag ?? "").trim();
+  const t = (toTag ?? "").trim();
+  if (!f || !t || f === t) return text ?? "";
+  const src = (text ?? "").replace(/\r\n/g, "\n");
+  const tags = extractHashtagsFromMarkdown(src);
+  if (!tags.includes(f)) return src;
+  if (tags.includes(t)) {
+    return removeHashtagFromMarkdown(src, f);
+  }
+  return replaceHashtagInMarkdown(src, f, t);
 }

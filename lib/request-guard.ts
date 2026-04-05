@@ -11,6 +11,12 @@ const buckets = new Map<string, Bucket>();
 const BOT_UA_RE =
   /(bot|spider|crawler|curl|wget|python-requests|scrapy|httpclient|headless|phantom|playwright|puppeteer)/i;
 
+/** 用于统计等场景：标记疑似自动化流量（非拦截用） */
+export function isLikelyBotUserAgent(userAgent: string | null | undefined): boolean {
+  const ua = userAgent ?? "";
+  return !ua || BOT_UA_RE.test(ua);
+}
+
 function getClientIp(req: Request) {
   const xff = req.headers.get("x-forwarded-for");
   if (xff) return xff.split(",")[0]?.trim() || "unknown";
@@ -18,8 +24,7 @@ function getClientIp(req: Request) {
 }
 
 function isSuspiciousUserAgent(req: Request) {
-  const ua = req.headers.get("user-agent") || "";
-  return !ua || BOT_UA_RE.test(ua);
+  return isLikelyBotUserAgent(req.headers.get("user-agent"));
 }
 
 export function withAntiScrapeHeaders(res: NextResponse) {

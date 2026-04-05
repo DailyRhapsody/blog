@@ -6,7 +6,15 @@ import { isAdmin } from "@/lib/auth";
 import { rejectCrossSiteWrite } from "@/lib/same-origin";
 
 const UPLOAD_DIR = join(process.cwd(), "public", "uploads");
-const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+const ALLOWED_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+];
 
 function extFromMime(mime: string): string {
   const map: Record<string, string> = {
@@ -14,8 +22,11 @@ function extFromMime(mime: string): string {
     "image/png": "png",
     "image/gif": "gif",
     "image/webp": "webp",
+    "video/mp4": "mp4",
+    "video/webm": "webm",
+    "video/quicktime": "mov",
   };
-  return map[mime] ?? "jpg";
+  return map[mime] ?? "bin";
 }
 
 const MAX_FILES = 24;

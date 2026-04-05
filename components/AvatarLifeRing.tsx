@@ -78,6 +78,33 @@ export default function AvatarLifeRing({
 
   useEffect(() => {
     if (!hover) return;
+
+    const touchUi =
+      typeof window !== "undefined" &&
+      (window.matchMedia("(pointer: coarse)").matches ||
+        navigator.maxTouchPoints > 0);
+
+    const dismiss = () => setHover(false);
+
+    if (touchUi) {
+      const pointerDownAway = (e: PointerEvent) => {
+        const el = rootRef.current;
+        const t = e.target;
+        if (!el || !(t instanceof Node) || el.contains(t)) return;
+        dismiss();
+      };
+      window.addEventListener("scroll", dismiss, true);
+      window.addEventListener("touchmove", dismiss, { capture: true, passive: true });
+      window.addEventListener("wheel", dismiss, { capture: true, passive: true });
+      document.addEventListener("pointerdown", pointerDownAway, true);
+      return () => {
+        window.removeEventListener("scroll", dismiss, true);
+        window.removeEventListener("touchmove", dismiss, true);
+        window.removeEventListener("wheel", dismiss, true);
+        document.removeEventListener("pointerdown", pointerDownAway, true);
+      };
+    }
+
     updateTooltipPos();
     window.addEventListener("scroll", updateTooltipPos, true);
     window.addEventListener("resize", updateTooltipPos);

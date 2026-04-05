@@ -16,6 +16,12 @@ export default function AdminHeader() {
         </Link>
         <div className="flex items-center gap-3">
           <Link
+            href="/admin/analytics"
+            className="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300"
+          >
+            流量
+          </Link>
+          <Link
             href="/"
             className="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-400"
           >
