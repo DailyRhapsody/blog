@@ -6,10 +6,64 @@ import {
   verifyScrapeGateValue,
 } from "@/lib/scrape-gate";
 import { isLikelyBotUserAgent, withAntiScrapeHeaders } from "@/lib/request-guard";
-
 import { isIpBlocked } from "@/lib/honeypot";
 
 const ADMIN_COOKIE = "admin_session";
+
+function verifyAdminSession(cookieValue: string): boolean {
+  const i = cookieValue.lastIndexOf(".");
+  if (i === -1) return false;
+  try {
+    const payloadStr = atob(cookieValue.slice(0, i).replace(/-/g, "+").replace(/_/g, "/"));
+    const payload = JSON.parse(payloadStr) as { exp?: number };
+    return !!payload.exp && payload.exp > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+function passPublicDataApi(req: NextRequest): boolean {
+  const admin = req.cookies.get(ADMIN_COOKIE)?.value;
+  if (admin && verifyAdminSession(admin)) return true;
+  const gate = req.cookies.get(SCRAPE_GATE_COOKIE)?.value;
+  return verifyScrapeGateValue(gate);
+}
+
+function isProtectedPublicApi(pathname: string, method: string): boolean {
+  if (method === "GET" && pathname === "/api/profile") return true;
+  if (pathname === "/api/gallery" && method === "GET") return true;
+  if (!pathname.startsWith("/api/diaries")) return false;
+  if (method === "GET") return true;
+  if (method === "POST") {
+    return /\/api\/diaries\/[^/]+\/comments$/.test(pathname);
+  }
+  return false;
+}
+
+function isGateIssuingPage(pathname: string, method: string): boolean {
+  if (method !== "GET") return false;
+  return (
+    pathname === "/" ||
+    pathname === "/entries" ||
+    pathname === "/the-moment" ||
+    pathname === "/gallery" ||
+    pathname === "/about"
+  );
+}
+
+function attachScrapeGate(res: NextResponse, req: NextRequest): NextResponse {
+  const existing = req.cookies.get(SCRAPE_GATE_COOKIE)?.value;
+  if (!verifyScrapeGateValue(existing)) {
+    res.cookies.set(SCRAPE_GATE_COOKIE, mintScrapeGateValue(), {
+      httpOnly: true,
+      path: "/",
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 60 * 60 * 48,
+    });
+  }
+  return res;
+}
 
 function getClientIp(req: NextRequest) {
   const xff = req.headers.get("x-forwarded-for");
@@ -17,7 +71,7 @@ function getClientIp(req: NextRequest) {
   return req.headers.get("x-real-ip") || "unknown";
 }
 
-export default async function middleware(req: NextRequest) {
+export default async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const method = req.method;
   const ua = req.headers.get("user-agent");
