@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AnalyticsCollector } from "@/components/AnalyticsCollector";
-import RainbowBrushTrail from "@/components/RainbowBrushTrail";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -31,7 +30,6 @@ export default function RootLayout({
       >
         {children}
         <AnalyticsCollector />
-        <RainbowBrushTrail />
       </body>
     </html>
   );
