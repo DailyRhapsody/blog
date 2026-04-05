@@ -4,11 +4,13 @@ import { useEffect, useRef } from "react";
 
 /* ── 手势识别配置 ── */
 const BEARING_BINS = 8;
-const MIN_SPEED_PX_S = 18;
-const MAX_SPEED_PX_S = 2600;
-const MIN_WARMUP_PX = 52;
+const MIN_SPEED_PX_S = 400;       // 触发手势识别的最低速度（px/s），低速不算
+const MAX_SPEED_PX_S = 4000;
+const MIN_WARMUP_PX = 80;
 const MIN_SEG_FOR_BIN = 3;
-const GESTURE_BUF_MAX = 36;
+const GESTURE_BUF_MAX = 48;
+const MIN_SHARP_COUNT = 7;        // 振荡：至少 N 次大掉头
+const MIN_WINDING_NET = 7;        // 画圈：净转角至少 N 格（约 315°）
 
 /* ── 渲染配置 ── */
 const LIFE_MS = 400;
@@ -60,31 +62,31 @@ function signedBinDelta(prev: number, next: number): number {
   return d;
 }
 
-/** 振荡检测：左右反复大掉头 */
+/** 振荡检测：在最近 bins 中统计大掉头次数（方位差 ≥3 格），需达到 MIN_SHARP_COUNT */
 function detectOscillation(bins: number[]): number {
-  if (bins.length < 6) return 0;
-  const s = bins.slice(-14);
+  if (bins.length < MIN_SHARP_COUNT + 1) return 0;
+  const s = bins.slice(-(MIN_SHARP_COUNT * 2 + 2));
   let sharp = 0;
   for (let i = 1; i < s.length; i++) {
     if (Math.abs(signedBinDelta(s[i - 1]!, s[i]!)) >= 3) sharp++;
   }
-  return sharp >= 4 ? 4 : sharp >= 3 ? 3 : 0;
+  if (sharp >= MIN_SHARP_COUNT) return 3 + Math.floor((sharp - MIN_SHARP_COUNT) / 2);
+  return 0;
 }
 
-/** 画圈检测：持续同向拐弯 */
+/** 画圈检测：净转角达到 MIN_WINDING_NET 格（约完整一圈） */
 function detectWinding(bins: number[]): number {
-  if (bins.length < 8) return 0;
-  const s = bins.slice(-22);
-  let totalAbs = 0;
+  if (bins.length < MIN_WINDING_NET) return 0;
+  const s = bins.slice(-30);
   let net = 0;
+  let totalAbs = 0;
   for (let i = 1; i < s.length; i++) {
     const d = signedBinDelta(s[i - 1]!, s[i]!);
     net += d;
     totalAbs += Math.abs(d);
   }
-  if (Math.abs(net) >= 4 && totalAbs >= 6)
-    return Math.min(6, 3 + Math.floor(Math.abs(net) / 2));
-  if (totalAbs >= 11) return 4;
+  if (Math.abs(net) >= MIN_WINDING_NET && totalAbs >= MIN_WINDING_NET)
+    return 3 + Math.floor((Math.abs(net) - MIN_WINDING_NET) / 2);
   return 0;
 }
 
