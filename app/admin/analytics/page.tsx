@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 type VisitRow = {
@@ -26,6 +26,8 @@ type VisitRow = {
   screenHeight: number | null;
 };
 
+type GeoPoint = { lat: number; lng: number; count: number; city: string | null; country: string | null };
+
 type Report = {
   summary: {
     total: number;
@@ -38,6 +40,7 @@ type Report = {
   topCountries: { key: string; count: number }[];
   topRegions: { key: string; count: number }[];
   daily: { date: string; count: number }[];
+  geoPoints: GeoPoint[];
   rows: VisitRow[];
   totalRows: number;
 };
@@ -49,6 +52,100 @@ function toYmd(d: Date) {
 function clip(s: string | null, n: number) {
   if (!s) return "—";
   return s.length <= n ? s : `${s.slice(0, n)}…`;
+}
+
+/* ── Leaflet 地图（CDN 按需加载） ── */
+function VisitorMap({ points }: { points: GeoPoint[] }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<ReturnType<typeof Object> | null>(null);
+  const [ready, setReady] = useState(false);
+
+  // 加载 Leaflet CSS + JS（仅一次）
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ((window as any).L) { setReady(true); return; }
+
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";
+    link.crossOrigin = "";
+    document.head.appendChild(link);
+
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
+    script.crossOrigin = "";
+    script.onload = () => setReady(true);
+    document.head.appendChild(script);
+  }, []);
+
+  // 初始化 / 更新地图
+  useEffect(() => {
+    if (!ready || !containerRef.current || points.length === 0) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const L = (window as any).L;
+    if (!L) return;
+
+    // 销毁旧实例
+    if (mapRef.current) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (mapRef.current as any).remove();
+      mapRef.current = null;
+    }
+
+    const map = L.map(containerRef.current, { zoomControl: true, attributionControl: true });
+
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+      attribution: '&copy; <a href="https://osm.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+      maxZoom: 18,
+    }).addTo(map);
+
+    const markers: unknown[] = [];
+    for (const p of points) {
+      const r = Math.min(14, 4 + Math.log2(p.count + 1) * 2.5);
+      const m = L.circleMarker([p.lat, p.lng], {
+        radius: r,
+        color: "#dc2626",
+        fillColor: "#f87171",
+        fillOpacity: 0.55,
+        weight: 1.5,
+      }).addTo(map);
+      m.bindPopup(
+        `<b>${p.city || "未知"}${p.country ? ` · ${p.country}` : ""}</b><br/>${p.count} 次访问`,
+      );
+      markers.push(m);
+    }
+
+    if (points.length === 1) {
+      map.setView([points[0].lat, points[0].lng], 6);
+    } else {
+      const bounds = L.latLngBounds(points.map((p: GeoPoint) => [p.lat, p.lng]));
+      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 10 });
+    }
+
+    mapRef.current = map;
+
+    return () => {
+      if (mapRef.current) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (mapRef.current as any).remove();
+        mapRef.current = null;
+      }
+    };
+  }, [ready, points]);
+
+  if (points.length === 0) return null;
+
+  return (
+    <div className="mb-8 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <h2 className="mb-3 text-sm font-medium text-zinc-900 dark:text-zinc-50">
+        访客地图
+        <span className="ml-2 font-normal text-zinc-500 dark:text-zinc-400">
+          {points.length} 个位置，{points.reduce((s, p) => s + p.count, 0)} 次访问
+        </span>
+      </h2>
+      <div ref={containerRef} className="h-[420px] w-full rounded-lg" />
+    </div>
+  );
 }
 
 function downloadCsv(rows: VisitRow[]) {
@@ -261,6 +358,8 @@ export default function AdminAnalyticsPage() {
               </div>
             ))}
           </section>
+
+          <VisitorMap points={report.geoPoints ?? []} />
 
           <div className="mb-8 grid gap-6 lg:grid-cols-3">
             <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">

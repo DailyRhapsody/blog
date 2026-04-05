@@ -253,6 +253,7 @@ export type AnalyticsSummary = {
 
 export type TopItem = { key: string; count: number };
 export type DailyItem = { date: string; count: number };
+export type GeoPoint = { lat: number; lng: number; count: number; city: string | null; country: string | null };
 
 export type AnalyticsReport = {
   summary: AnalyticsSummary;
@@ -260,6 +261,7 @@ export type AnalyticsReport = {
   topCountries: TopItem[];
   topRegions: TopItem[];
   daily: DailyItem[];
+  geoPoints: GeoPoint[];
   rows: VisitRow[];
   totalRows: number;
 };
@@ -325,6 +327,20 @@ function aggregateFromRows(all: VisitRow[], includeBots: boolean): Omit<Analytic
     .map(([date, count]) => ({ date, count }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
+  // 地理聚合
+  const geoMap = new Map<string, GeoPoint>();
+  for (const r of filtered) {
+    if (r.latitude == null || r.longitude == null) continue;
+    const key = `${r.latitude.toFixed(2)},${r.longitude.toFixed(2)}`;
+    const existing = geoMap.get(key);
+    if (existing) {
+      existing.count++;
+    } else {
+      geoMap.set(key, { lat: r.latitude, lng: r.longitude, count: 1, city: r.city, country: r.country });
+    }
+  }
+  const geoPoints = [...geoMap.values()].sort((a, b) => b.count - a.count).slice(0, 500);
+
   return {
     summary: {
       total: all.length,
@@ -340,6 +356,7 @@ function aggregateFromRows(all: VisitRow[], includeBots: boolean): Omit<Analytic
       25
     ),
     daily,
+    geoPoints,
   };
 }
 
@@ -425,6 +442,26 @@ export async function queryAnalytics(q: AnalyticsQuery): Promise<AnalyticsReport
       [q.from, q.to]
     );
 
+    const geoRes = await pool.query(
+      `SELECT ROUND(latitude::numeric, 2)::float AS lat,
+              ROUND(longitude::numeric, 2)::float AS lng,
+              COALESCE(city, '') AS city, COALESCE(country, '') AS country,
+              COUNT(*)::int AS count
+       FROM visit_events
+       WHERE created_at >= $1 AND created_at <= $2
+         AND latitude IS NOT NULL AND longitude IS NOT NULL ${botClause}
+       GROUP BY 1, 2, city, country
+       ORDER BY count DESC LIMIT 500`,
+      [q.from, q.to]
+    );
+    const geoPoints: GeoPoint[] = geoRes.rows.map((r) => ({
+      lat: Number(r.lat),
+      lng: Number(r.lng),
+      count: Number(r.count),
+      city: r.city || null,
+      country: r.country || null,
+    }));
+
     const countRes = await pool.query(
       `SELECT COUNT(*)::int AS c FROM visit_events
        WHERE created_at >= $1 AND created_at <= $2 ${botClause}`,
@@ -446,6 +483,7 @@ export async function queryAnalytics(q: AnalyticsQuery): Promise<AnalyticsReport
       topCountries: topCountriesRes.rows.map((r) => ({ key: String(r.key), count: Number(r.count) })),
       topRegions: topRegionsRes.rows.map((r) => ({ key: String(r.key), count: Number(r.count) })),
       daily: dailyRes.rows.map((r) => ({ date: String(r.date), count: Number(r.count) })),
+      geoPoints,
       rows: rowsRes.rows.map((row) => mapPgRow(row)),
       totalRows,
     };

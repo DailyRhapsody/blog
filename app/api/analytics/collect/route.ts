@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { recordVisit } from "@/lib/analytics-store";
+import { isAdmin } from "@/lib/auth";
 import { getClientIpFromRequest } from "@/lib/client-ip";
 import { resolveGeoForRequest } from "@/lib/geoip";
 import {
@@ -35,6 +36,9 @@ function numOrNull(v: unknown): number | null {
 }
 
 export async function POST(req: Request) {
+  // 管理员自身的浏览不计入统计
+  if (await isAdmin()) return new NextResponse(null, { status: 204 });
+
   const blocked = await guardApiRequest(req, {
     scope: "analytics:collect",
     limit: 240,
