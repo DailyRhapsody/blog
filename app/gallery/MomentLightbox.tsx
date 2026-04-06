@@ -1,0 +1,105 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+
+export function MomentLightbox({
+  urls,
+  index,
+  open,
+  onClose,
+}: {
+  urls: string[];
+  index: number;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const [i, setI] = useState(index);
+
+  const onKey = useCallback(
+    (e: KeyboardEvent) => {
+      if (!open) return;
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowLeft") setI((x) => Math.max(0, x - 1));
+      if (e.key === "ArrowRight") setI((x) => Math.min(urls.length - 1, x + 1));
+    },
+    [open, onClose, urls.length]
+  );
+
+  useEffect(() => {
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onKey]);
+
+  useEffect(() => {
+    if (open) document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [open]);
+
+  if (!open || urls.length === 0) return null;
+
+  const src = urls[i];
+  if (!src) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[300] flex items-center justify-center bg-black/92 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="图片预览"
+    >
+      <button
+        type="button"
+        className="absolute inset-0 cursor-default border-0 bg-transparent"
+        aria-label="关闭"
+        onClick={onClose}
+      />
+      <div className="relative z-10 flex max-h-[min(92vh,900px)] max-w-[min(96vw,1200px)] flex-1 items-center justify-center">
+        {urls.length > 1 && (
+          <button
+            type="button"
+            className="absolute left-0 top-1/2 z-20 -translate-y-1/2 rounded-full bg-white/10 p-3 text-white backdrop-blur-sm disabled:opacity-30 sm:left-2"
+            disabled={i <= 0}
+            onClick={(e) => {
+              e.stopPropagation();
+              setI((x) => Math.max(0, x - 1));
+            }}
+            aria-label="上一张"
+          >
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+        )}
+        <div className="relative mx-10 max-h-full w-full" onClick={(e) => e.stopPropagation()}>
+          {/* eslint-disable-next-line @next/next/no-img-element -- 外链原图尺寸不定 */}
+          <img
+            src={src}
+            alt=""
+            className="max-h-[min(92vh,900px)] w-auto max-w-full object-contain"
+          />
+        </div>
+        {urls.length > 1 && (
+          <button
+            type="button"
+            className="absolute right-0 top-1/2 z-20 -translate-y-1/2 rounded-full bg-white/10 p-3 text-white backdrop-blur-sm disabled:opacity-30 sm:right-2"
+            disabled={i >= urls.length - 1}
+            onClick={(e) => {
+              e.stopPropagation();
+              setI((x) => Math.min(urls.length - 1, x + 1));
+            }}
+            aria-label="下一张"
+          >
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        )}
+        <p className="absolute bottom-2 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-xs text-white/90">
+          {i + 1} / {urls.length}
+        </p>
+      </div>
+    </div>
+  );
+}

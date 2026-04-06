@@ -16,6 +16,8 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+若终端出现 **`Failed to open database` / `invalid digit found in string`**，这是 **Turbopack 本地缓存**损坏，与 PostgreSQL 无关。可执行 `npm run clean:next` 后重新 `npm run dev`，或改用 **`npm run dev:webpack`** 走 Webpack 开发。
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

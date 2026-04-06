@@ -32,6 +32,7 @@ function passPublicDataApi(req: NextRequest): boolean {
 function isProtectedPublicApi(pathname: string, method: string): boolean {
   if (method === "GET" && pathname === "/api/profile") return true;
   if (pathname === "/api/gallery" && method === "GET") return true;
+  if (method === "GET" && pathname.startsWith("/api/moments")) return true;
   if (!pathname.startsWith("/api/diaries")) return false;
   if (method === "GET") return true;
   if (method === "POST") {
@@ -136,6 +137,8 @@ export const config = {
     "/api/diaries",
     "/api/diaries/:path*",
     "/api/gallery",
+    "/api/moments",
+    "/api/moments/:path*",
     "/api/profile",
     "/",
     "/entries",

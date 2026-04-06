@@ -30,6 +30,8 @@ function extFromMime(mime: string): string {
 }
 
 const MAX_FILES = 24;
+/** 视频单文件上限（动态/封面等） */
+const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 
 export async function POST(req: Request) {
   const badOrigin = rejectCrossSiteWrite(req);
@@ -64,6 +66,12 @@ export async function POST(req: Request) {
       const file = files[i];
       if (!(file instanceof File)) continue;
       if (!ALLOWED_TYPES.includes(file.type)) continue;
+      if (file.type.startsWith("video/") && file.size > MAX_VIDEO_BYTES) {
+        return NextResponse.json(
+          { error: "单个视频不能超过 100MB" },
+          { status: 400 }
+        );
+      }
       const ext = extFromMime(file.type);
       const pathname = `uploads/${Date.now()}-${i}-${Math.random().toString(36).slice(2, 10)}.${ext}`;
       try {
@@ -87,6 +95,12 @@ export async function POST(req: Request) {
       const file = files[i];
       if (!(file instanceof File)) continue;
       if (!ALLOWED_TYPES.includes(file.type)) continue;
+      if (file.type.startsWith("video/") && file.size > MAX_VIDEO_BYTES) {
+        return NextResponse.json(
+          { error: "单个视频不能超过 100MB" },
+          { status: 400 }
+        );
+      }
       const ext = extFromMime(file.type);
       const name = `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 10)}.${ext}`;
       const path = join(UPLOAD_DIR, name);

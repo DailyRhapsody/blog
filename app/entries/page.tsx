@@ -7,8 +7,8 @@ import Link from "next/link";
 import { formatDate12h } from "@/lib/format";
 import { markdownPreviewProseClass, renderMarkdown } from "@/lib/markdown";
 import { createShareCardElement } from "@/lib/share-card";
-import AvatarLifeRing from "@/components/AvatarLifeRing";
 import RainbowBrushTrail from "@/components/RainbowBrushTrail";
+import StickyProfileHeader from "@/components/StickyProfileHeader";
 
 type Diary = {
   id: number;
@@ -723,16 +723,10 @@ export default function EntriesPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [entriesFlipped, setEntriesFlipped] = useState(false);
-  const [scrollY, setScrollY] = useState(0);
   const [eggPullY, setEggPullY] = useState(0);
   const [isRebounding, setIsRebounding] = useState(false);
-  const [isReturnToTopAnimating, setIsReturnToTopAnimating] = useState(false);
-  const [isHeaderExpanding, setIsHeaderExpanding] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const contentWrapperRef = useRef<HTMLDivElement>(null);
-  const headerRef = useRef<HTMLElement>(null);
-  const returnToTopPhaseRef = useRef<0 | 1 | 2>(0);
-  const returnToTopRafRef = useRef<number>(0);
   const eggPullAccumRef = useRef(0);
   const eggReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchLastYRef = useRef(0);
@@ -769,97 +763,6 @@ export default function EntriesPage() {
         setGalleryThumbs(imgs.slice(0, 4));
       })
       .catch(() => setGalleryThumbs([]));
-  }, []);
-
-  const runReturnToTop = useCallback(() => {
-    if (typeof window === "undefined") return;
-    const startY = window.scrollY;
-    if (startY <= 0) return;
-
-    const HEADER_EXPANDED = 260;
-    const HEADER_COLLAPSED = 56;
-
-    returnToTopPhaseRef.current = 1;
-    setIsReturnToTopAnimating(true);
-
-    // ── Phase 1: 自适应滚动回顶 ──
-    // 对数缩放：近距离快、远距离也不会太慢，上限 1200ms
-    const scrollDuration = Math.min(
-      1200,
-      300 + 180 * Math.log(1 + startY / 200),
-    );
-
-    const startT = performance.now();
-
-    function easeOutCubic(x: number) {
-      return 1 - (1 - x) ** 3;
-    }
-
-    function scrollTick(now: number) {
-      const elapsed = now - startT;
-      const progress = Math.min(elapsed / scrollDuration, 1);
-      const eased = easeOutCubic(progress);
-
-      window.scrollTo(0, Math.round(startY * (1 - eased)));
-
-      if (progress < 1) {
-        returnToTopRafRef.current = requestAnimationFrame(scrollTick);
-      } else {
-        // ── Phase 2: JS 驱动展开 header ──
-        // 逐帧控制高度，不依赖 CSS transition，完全避免卡顿
-        window.scrollTo(0, 0);
-        setScrollY(0);
-        returnToTopPhaseRef.current = 2;
-        // 触发 isCollapsed=false → CSS 头像滑动开始（duration-400 同步）
-        setIsHeaderExpanding(true);
-
-        const EXPAND_MS = 400;
-        const expandStart = performance.now();
-
-        function expandTick(now: number) {
-          const elapsed = now - expandStart;
-          const p = Math.min(elapsed / EXPAND_MS, 1);
-          const eased = easeOutCubic(p);
-
-          const h = HEADER_COLLAPSED + (HEADER_EXPANDED - HEADER_COLLAPSED) * eased;
-          if (headerRef.current) {
-            headerRef.current.style.height = `${h}px`;
-          }
-
-          if (p < 1) {
-            returnToTopRafRef.current = requestAnimationFrame(expandTick);
-          } else {
-            // 展开完毕，交还给 React
-            setIsReturnToTopAnimating(false);
-            setIsHeaderExpanding(false);
-            returnToTopPhaseRef.current = 0;
-          }
-        }
-
-        returnToTopRafRef.current = requestAnimationFrame(expandTick);
-      }
-    }
-
-    returnToTopRafRef.current = requestAnimationFrame(scrollTick);
-  }, []);
-
-  useEffect(() => {
-    let scrollRaf = 0;
-    function onScroll() {
-      if (returnToTopPhaseRef.current !== 0) return;
-      if (scrollRaf) return;
-      scrollRaf = requestAnimationFrame(() => {
-        scrollRaf = 0;
-        setScrollY(typeof window !== "undefined" ? window.scrollY : 0);
-      });
-    }
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      if (scrollRaf) cancelAnimationFrame(scrollRaf);
-      if (returnToTopRafRef.current) cancelAnimationFrame(returnToTopRafRef.current);
-    };
   }, []);
 
   useEffect(() => {
@@ -1100,119 +1003,7 @@ export default function EntriesPage() {
           id="entries"
           className={`entries-flip-panel mx-auto flex max-w-3xl flex-col pb-8 ${entriesFlipped ? "entries-flip-visible" : ""}`}
         >
-          {/* 顶部 profile：随滚动逐渐收缩，收缩后固定、头像与姓名居中 */}
-          {(() => {
-            const HEADER_EXPANDED = 260;
-            const HEADER_COLLAPSED = 56;
-            const threshold = HEADER_EXPANDED - HEADER_COLLAPSED;
-            const COLLAPSE_AT = threshold + 10;
-            const nearTop = scrollY < 28;
-            const isReturning = isReturnToTopAnimating;
-            const signatureTrimmed = profile?.signature?.trim() ?? "";
-            const hasSignature = signatureTrimmed.length > 0;
-
-            // Phase 1 (滚动中): 锁定收缩
-            // Phase 2 (展开中): JS 驱动高度（通过 headerRef），React 侧保持 COLLAPSED 不干扰
-            // 正常: 基于 scrollY
-            const height = isReturning
-              ? HEADER_COLLAPSED
-              : nearTop
-                ? HEADER_EXPANDED
-                : Math.max(HEADER_COLLAPSED, HEADER_EXPANDED - scrollY);
-            // Phase 2 时 isCollapsed=false → 触发头像从居中滑向左侧
-            const isCollapsed = isReturning && !isHeaderExpanding
-              ? true
-              : scrollY >= COLLAPSE_AT;
-            return (
-              <header
-                ref={headerRef}
-                className={`sticky top-0 z-30 w-full overflow-hidden rounded-b-2xl bg-gradient-to-b from-zinc-900 via-zinc-800 to-black transition-[height] ease-out ${
-                  isReturning ? "duration-0" : "duration-300"
-                }`}
-                style={{
-                  height: `${height}px`,
-                }}
-              >
-                <div
-                  className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-                  style={{
-                    backgroundImage: `url(${profile?.headerBg || "/header-bg.png"})`,
-                  }}
-                />
-                <div className="absolute inset-0 bg-black/50" />
-                {isCollapsed && !isReturning && (
-                  <button
-                    type="button"
-                    className="absolute inset-0 z-10 cursor-pointer"
-                    onClick={runReturnToTop}
-                    aria-label="回到顶部并展开"
-                  />
-                )}
-                <div className="relative flex h-full w-full flex-col justify-center px-5">
-                  {/* 收缩时：头像+名称从下边缘往上渐显，并在栏内上下居中 */}
-                  <div
-                    className={`absolute inset-0 flex items-center justify-center px-5 ${
-                      isCollapsed ? "pointer-events-auto" : "pointer-events-none"
-                    }`}
-                  >
-                    <div
-                      className={`inline-flex transition-[transform,opacity] duration-400 ease-out ${
-                        isCollapsed ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
-                      }`}
-                    >
-                      <div className="inline-flex max-w-full items-center gap-2">
-                        <Link href="/" className="shrink-0 leading-none" aria-label="首页">
-                          <AvatarLifeRing src={profile?.avatar || "/avatar.png"} size="sm" />
-                        </Link>
-                        <Link href="/" className="inline-flex min-w-0 w-fit self-center">
-                          <p className="whitespace-nowrap text-base font-bold leading-tight text-white">
-                            {profile?.name ?? "DailyRhapsody"}
-                          </p>
-                        </Link>
-                      </div>
-                    </div>
-                  </div>
-                  {/* 展开时：整块内容；收起时头像+名称向下渐隐 */}
-                  <div
-                    className={`min-w-0 flex-1 transition-[transform,opacity] duration-400 ease-out ${
-                      isCollapsed
-                        ? "translate-y-1 opacity-0 pointer-events-none"
-                        : "flex flex-col justify-center translate-y-0 opacity-100"
-                    }`}
-                  >
-                    <div
-                      className={`inline-flex w-fit max-w-full shrink-0 items-center gap-4 ${
-                        hasSignature ? "self-start" : "self-center mx-auto"
-                      }`}
-                    >
-                      <Link href="/" className="shrink-0 leading-none" aria-label="首页">
-                        <AvatarLifeRing src={profile?.avatar || "/avatar.png"} size="lg" />
-                      </Link>
-                      <div
-                        className={`flex min-w-0 flex-col justify-center gap-1 ${
-                          hasSignature ? "" : "items-center text-center"
-                        }`}
-                      >
-                        <Link
-                          href="/"
-                          className={`inline-flex w-fit ${hasSignature ? "self-start" : "self-center"}`}
-                        >
-                          <p className="whitespace-nowrap text-lg font-bold text-white">
-                            {profile?.name ?? "DailyRhapsody"}
-                          </p>
-                        </Link>
-                        {hasSignature && (
-                          <p className="max-w-[min(100%,calc(100vw-6rem))] self-start text-left text-xs leading-snug text-white/80">
-                            {signatureTrimmed}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </header>
-            );
-          })()}
+          <StickyProfileHeader profile={profile} />
 
           <div
             ref={contentWrapperRef}
