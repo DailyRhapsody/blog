@@ -39,7 +39,9 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 ## Custom domain & Cloudflare（可选）
 
-当前可使用 Vercel 默认域名（如 `dailyrhapsody.vercel.app`）。后续若绑定自有域名并希望在前端使用 **Cloudflare WAF / 质询** 等边缘防护，参见 **[docs/custom-domain-cloudflare.md](./docs/custom-domain-cloudflare.md)**（含 DNS、SSL、规则草稿与注意事项）。
+正式站点域名为 **[tengjun.org](https://tengjun.org)**（亦可在 Vercel 上保留 `*.vercel.app` 作为备用入口）。若将 DNS 放在 Cloudflare 并希望使用 **WAF / 质询** 等边缘防护，参见 **[docs/custom-domain-cloudflare.md](./docs/custom-domain-cloudflare.md)**（含 DNS、SSL、规则草稿与注意事项）。
+
+部署时在环境变量中设置 `NEXT_PUBLIC_SITE_URL=https://tengjun.org`（若与默认值一致可省略），以便生成正确的 metadata 与分享绝对链接。
 
 ## 后台 Markdown · AI 辅助（可选）
 

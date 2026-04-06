@@ -13,7 +13,11 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const siteUrl =
+  process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://tengjun.org";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: "DailyRhapsody",
   description: "I think, therefore I am.",
 };

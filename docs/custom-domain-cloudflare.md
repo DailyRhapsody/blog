@@ -1,6 +1,6 @@
 # 自有域名 + Cloudflare（后续接入指南）
 
-当前线上默认地址为 Vercel 子域（例如 `https://dailyrhapsody.vercel.app`）。**`*.vercel.app` 的 DNS 由 Vercel 管理**，你无法把它加到自己的 Cloudflare 账户里做自定义 WAF，因此**在绑定自有域名之前**，应用层防护（限流、`dr_gate`、同源写保护等）仍起主要作用。
+本站正式域名为 **`https://tengjun.org`**。若仍保留 Vercel 子域（例如 `*.vercel.app`）作为备用，**`*.vercel.app` 的 DNS 由 Vercel 管理**，无法单独把它加进 Cloudflare 做自定义 WAF；自有域名接入 Cloudflare 后，边缘防护可与应用层（限流、`dr_gate`、同源写保护等）互补。
 
 绑定**你自己购买的域名**后，可以把 DNS 放在 Cloudflare，并在边缘做机器人 / 威胁清洗，与源码里的防护互补。
 
@@ -9,7 +9,7 @@
 ## 一、在 Vercel 绑定域名
 
 1. 打开 Vercel 项目 → **Settings** → **Domains**。
-2. 输入你的域名（例如 `example.com` 或 `www.example.com`），按提示完成验证。
+2. 输入你的域名（本站为 `tengjun.org`，若使用 `www` 子域则一并添加），按提示完成验证。
 3. 记下 Vercel 要求配置的 DNS 记录类型（通常是 **CNAME** 指向 `cname.vercel-dns.com`，或根域用 **A** 记录指向 Vercel 提供的 IP）。以控制台显示为准。
 
 ---
@@ -38,7 +38,7 @@
 - **表达式**：
 
 ```txt
-(not http.host in {"example.com" "www.example.com"})
+(not http.host in {"tengjun.org" "www.tengjun.org"})
 ```
 
 - **操作**：Block
@@ -47,7 +47,7 @@
 
 ---
 
-## 四、WAF 自定义规则草稿（替换 `example.com` 后逐条核对）
+## 四、WAF 自定义规则草稿（已按 `tengjun.org` 示例；若主机名不同请替换）
 
 以下均在 **Security → WAF → Custom rules** 中配置。免费套餐有规则条数上限，可按需删减。
 
@@ -112,4 +112,4 @@
 - [ ] 后台登录、发布、评论流程走通（若 API 被质询过于频繁，适当放宽威胁分规则）
 - [ ] Cloudflare 橙云 + SSL 无重定向循环
 
-将文中 **`example.com` / `www.example.com`** 全部替换为你的真实域名后再保存规则。
+若实际使用的主机名与 **`tengjun.org` / `www.tengjun.org`** 不一致（或还有其它合法别名），请在 WAF 表达式中一并列入 `http.host in { ... }`，避免误拦。
