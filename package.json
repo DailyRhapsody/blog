@@ -12,9 +12,9 @@
     "vercel:env": "npx vercel env pull .env.local"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.101.1",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.37.0",
-    "@vercel/blob": "^2.3.0",
     "html2canvas": "^1.4.1",
     "isomorphic-dompurify": "^3.7.1",
     "marked": "^17.0.5",

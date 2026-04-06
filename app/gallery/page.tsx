@@ -271,7 +271,7 @@ export default function GalleryPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-zinc-100 to-white font-sans text-zinc-900 dark:from-black dark:via-zinc-950 dark:to-black dark:text-zinc-50">
       <RainbowBrushTrail />
-      <main className="mx-auto flex max-w-3xl flex-col pb-8">
+      <main className="mx-auto flex max-w-4xl flex-col pb-8">
         <StickyProfileHeader profile={profile} />
 
         <div className="bg-white dark:bg-zinc-900">

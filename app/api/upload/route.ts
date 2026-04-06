@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { put } from "@vercel/blob";
+import { createClient } from "@supabase/supabase-js";
 import { isAdmin } from "@/lib/auth";
 import { rejectCrossSiteWrite } from "@/lib/same-origin";
 
@@ -33,6 +33,14 @@ const MAX_FILES = 24;
 /** 视频单文件上限（动态/封面等） */
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 
+function getSupabaseUploadConfig() {
+  const url = process.env.SUPABASE_URL?.trim();
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  const bucket = process.env.SUPABASE_STORAGE_BUCKET?.trim() || "gallery";
+  if (!url || !serviceRoleKey) return null;
+  return { url, serviceRoleKey, bucket };
+}
+
 export async function POST(req: Request) {
   const badOrigin = rejectCrossSiteWrite(req);
   if (badOrigin) return badOrigin;
@@ -58,18 +66,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `单次最多上传 ${MAX_FILES} 个文件` }, { status: 400 });
   }
 
-  const useBlob = !!process.env.BLOB_READ_WRITE_TOKEN;
+  const supabaseConfig = getSupabaseUploadConfig();
   const urls: string[] = [];
   const isProd = process.env.NODE_ENV === "production";
 
-  if (!useBlob && isProd) {
+  if (!supabaseConfig && isProd) {
     return NextResponse.json(
-      { error: "服务器未配置 BLOB_READ_WRITE_TOKEN，生产环境无法上传文件" },
+      { error: "服务器未配置 SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY，生产环境无法上传文件" },
       { status: 503 }
     );
   }
 
-  if (useBlob) {
+  if (supabaseConfig) {
+    const supabase = createClient(supabaseConfig.url, supabaseConfig.serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       if (!(file instanceof File)) continue;
@@ -88,16 +99,28 @@ export async function POST(req: Request) {
       const ext = extFromMime(file.type);
       const pathname = `uploads/${Date.now()}-${i}-${Math.random().toString(36).slice(2, 10)}.${ext}`;
       try {
-        const blob = await put(pathname, file, {
-          access: "public",
-          addRandomSuffix: true,
-          contentType: file.type,
-        });
-        urls.push(blob.url);
+        const buffer = Buffer.from(await file.arrayBuffer());
+        const uploaded = await supabase.storage
+          .from(supabaseConfig.bucket)
+          .upload(pathname, buffer, {
+            contentType: file.type,
+            upsert: false,
+            cacheControl: "31536000",
+          });
+        if (uploaded.error) {
+          throw uploaded.error;
+        }
+        const { data } = supabase.storage
+          .from(supabaseConfig.bucket)
+          .getPublicUrl(uploaded.data.path);
+        if (!data.publicUrl) {
+          throw new Error("Supabase public url missing");
+        }
+        urls.push(data.publicUrl);
       } catch (err) {
-        console.error("Blob upload failed:", err);
+        console.error("Supabase upload failed:", err);
         return NextResponse.json(
-          { error: "上传到存储失败，请检查 BLOB_READ_WRITE_TOKEN" },
+          { error: "上传到 Supabase Storage 失败，请检查 bucket/权限/环境变量" },
           { status: 500 }
         );
       }

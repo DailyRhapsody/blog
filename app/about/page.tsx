@@ -5,7 +5,7 @@ import Link from "next/link";
 export default function AboutPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-zinc-100 to-white px-4 py-8 font-sans text-zinc-900 dark:from-black dark:via-zinc-950 dark:to-black dark:text-zinc-50">
-      <main className="mx-auto max-w-2xl">
+      <main className="mx-auto max-w-3xl">
         <Link
           href="/"
           className="mb-6 inline-block text-sm text-zinc-500 transition-opacity hover:opacity-80 dark:text-zinc-400"
