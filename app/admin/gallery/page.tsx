@@ -31,6 +31,9 @@ async function uploadFiles(files: FileList | File[]): Promise<{ url: string; med
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error ?? "上传失败");
   const urls: string[] = Array.isArray(data.urls) ? data.urls : [];
+  if (urls.length !== arr.length) {
+    throw new Error("上传返回数量异常，请重试或检查文件格式");
+  }
   const out: { url: string; mediaType: string }[] = [];
   for (let i = 0; i < urls.length; i++) {
     out.push({ url: urls[i]!, mediaType: arr[i]?.type ?? "image/jpeg" });
@@ -250,9 +253,6 @@ export default function AdminMomentsPage() {
         <h2 className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
           {editingId != null ? `编辑动态 #${editingId}` : "发布新动态"}
         </h2>
-        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-          图片与视频二选一；图片 1～9 张（JPG/PNG/GIF/WebP）；视频单个 MP4/MOV/WebM，最大 100MB。
-        </p>
 
         <div className="mt-4 flex gap-6 text-sm">
           <label className="flex cursor-pointer items-center gap-2">

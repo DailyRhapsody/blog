@@ -65,7 +65,12 @@ export async function POST(req: Request) {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       if (!(file instanceof File)) continue;
-      if (!ALLOWED_TYPES.includes(file.type)) continue;
+      if (!ALLOWED_TYPES.includes(file.type)) {
+        return NextResponse.json(
+          { error: `不支持的文件类型：${file.type || "unknown"}` },
+          { status: 400 }
+        );
+      }
       if (file.type.startsWith("video/") && file.size > MAX_VIDEO_BYTES) {
         return NextResponse.json(
           { error: "单个视频不能超过 100MB" },
@@ -94,7 +99,12 @@ export async function POST(req: Request) {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       if (!(file instanceof File)) continue;
-      if (!ALLOWED_TYPES.includes(file.type)) continue;
+      if (!ALLOWED_TYPES.includes(file.type)) {
+        return NextResponse.json(
+          { error: `不支持的文件类型：${file.type || "unknown"}` },
+          { status: 400 }
+        );
+      }
       if (file.type.startsWith("video/") && file.size > MAX_VIDEO_BYTES) {
         return NextResponse.json(
           { error: "单个视频不能超过 100MB" },
