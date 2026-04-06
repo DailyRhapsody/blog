@@ -60,6 +60,14 @@ export async function POST(req: Request) {
 
   const useBlob = !!process.env.BLOB_READ_WRITE_TOKEN;
   const urls: string[] = [];
+  const isProd = process.env.NODE_ENV === "production";
+
+  if (!useBlob && isProd) {
+    return NextResponse.json(
+      { error: "服务器未配置 BLOB_READ_WRITE_TOKEN，生产环境无法上传文件" },
+      { status: 503 }
+    );
+  }
 
   if (useBlob) {
     for (let i = 0; i < files.length; i++) {
@@ -95,28 +103,33 @@ export async function POST(req: Request) {
       }
     }
   } else {
-    await mkdir(UPLOAD_DIR, { recursive: true });
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      if (!(file instanceof File)) continue;
-      if (!ALLOWED_TYPES.includes(file.type)) {
-        return NextResponse.json(
-          { error: `不支持的文件类型：${file.type || "unknown"}` },
-          { status: 400 }
-        );
+    try {
+      await mkdir(UPLOAD_DIR, { recursive: true });
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (!(file instanceof File)) continue;
+        if (!ALLOWED_TYPES.includes(file.type)) {
+          return NextResponse.json(
+            { error: `不支持的文件类型：${file.type || "unknown"}` },
+            { status: 400 }
+          );
+        }
+        if (file.type.startsWith("video/") && file.size > MAX_VIDEO_BYTES) {
+          return NextResponse.json(
+            { error: "单个视频不能超过 100MB" },
+            { status: 400 }
+          );
+        }
+        const ext = extFromMime(file.type);
+        const name = `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 10)}.${ext}`;
+        const path = join(UPLOAD_DIR, name);
+        const buf = Buffer.from(await file.arrayBuffer());
+        await writeFile(path, buf);
+        urls.push(`/uploads/${name}`);
       }
-      if (file.type.startsWith("video/") && file.size > MAX_VIDEO_BYTES) {
-        return NextResponse.json(
-          { error: "单个视频不能超过 100MB" },
-          { status: 400 }
-        );
-      }
-      const ext = extFromMime(file.type);
-      const name = `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 10)}.${ext}`;
-      const path = join(UPLOAD_DIR, name);
-      const buf = Buffer.from(await file.arrayBuffer());
-      await writeFile(path, buf);
-      urls.push(`/uploads/${name}`);
+    } catch (err) {
+      console.error("Local upload failed:", err);
+      return NextResponse.json({ error: "上传失败，请检查服务器存储配置" }, { status: 500 });
     }
   }
 
