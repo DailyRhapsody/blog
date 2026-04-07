@@ -723,6 +723,7 @@ export default function EntriesPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [entriesFlipped, setEntriesFlipped] = useState(false);
+  const [isTopToolsCollapsed, setIsTopToolsCollapsed] = useState(false);
   const [eggPullY, setEggPullY] = useState(0);
   const [isRebounding, setIsRebounding] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -858,6 +859,24 @@ export default function EntriesPage() {
   useEffect(() => {
     const t = setTimeout(() => setEntriesFlipped(true), 80);
     return () => clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    let rafId = 0;
+    const COLLAPSE_SCROLL_Y = 96;
+    const onScroll = () => {
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        setIsTopToolsCollapsed(window.scrollY > COLLAPSE_SCROLL_Y);
+      });
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (rafId) cancelAnimationFrame(rafId);
+    };
   }, []);
 
   useEffect(() => {
@@ -1026,40 +1045,59 @@ export default function EntriesPage() {
           <div className="px-4 pt-5">
           <div className="sticky top-[4.25rem] z-20 mb-5 bg-zinc-100/92 pb-3 backdrop-blur supports-[backdrop-filter]:bg-zinc-100/70 dark:bg-zinc-950/92 dark:supports-[backdrop-filter]:bg-zinc-950/70">
             {/* 顶部功能区：日历热力图（左）+ 画廊入口（右）；顶部收缩后保持吸顶 */}
-            <div className="flex flex-wrap items-start gap-6 [contain:layout_paint]">
-              <CalendarHeatmap datesWithPosts={datesWithPosts} />
-              <Link
-                href="/gallery"
-                aria-label="打开画廊"
-                className="inline-grid h-[148px] rounded-xl border border-zinc-200 bg-white/80 p-2.5 shadow-sm transition-apple hover:shadow-md dark:border-zinc-700 dark:bg-zinc-800/80"
-                style={{ width: "min(100%, 168px)" }}
-              >
-                <div className="grid h-full w-full">
-                  <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-2">
-                    {Array.from({ length: 4 }).map((_, i) => {
-                      const src = galleryThumbs[i];
-                      return (
-                        <div
-                          key={src ? `${src}-${i}` : `ph-${i}`}
-                          className="relative overflow-hidden rounded-[8px] bg-zinc-100 ring-1 ring-zinc-200/70 dark:bg-zinc-700/60 dark:ring-zinc-600/60"
-                        >
-                          {src ? (
-                            <Image
-                              src={src}
-                              alt=""
-                              fill
-                              unoptimized
-                              className="object-cover"
-                              sizes="(max-width: 768px) 76px, 76px"
-                            />
-                          ) : null}
-                        </div>
-                      );
-                    })}
+            {isTopToolsCollapsed ? (
+              <div className="flex flex-wrap items-center gap-2 [contain:layout_paint]">
+                <a
+                  href="#entries"
+                  aria-label="返回日历区域"
+                  className="inline-flex h-9 items-center justify-center rounded-lg border border-zinc-200 bg-white/85 px-4 text-sm font-medium text-zinc-700 shadow-sm transition-apple hover:bg-white dark:border-zinc-700 dark:bg-zinc-800/85 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                >
+                  日历
+                </a>
+                <Link
+                  href="/gallery"
+                  aria-label="打开画廊"
+                  className="inline-flex h-9 items-center justify-center rounded-lg border border-zinc-200 bg-white/85 px-4 text-sm font-medium text-zinc-700 shadow-sm transition-apple hover:bg-white dark:border-zinc-700 dark:bg-zinc-800/85 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                >
+                  画廊
+                </Link>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-start gap-6 [contain:layout_paint]">
+                <CalendarHeatmap datesWithPosts={datesWithPosts} />
+                <Link
+                  href="/gallery"
+                  aria-label="打开画廊"
+                  className="inline-grid h-[148px] rounded-xl border border-zinc-200 bg-white/80 p-2.5 shadow-sm transition-apple hover:shadow-md dark:border-zinc-700 dark:bg-zinc-800/80"
+                  style={{ width: "min(100%, 168px)" }}
+                >
+                  <div className="grid h-full w-full">
+                    <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-2">
+                      {Array.from({ length: 4 }).map((_, i) => {
+                        const src = galleryThumbs[i];
+                        return (
+                          <div
+                            key={src ? `${src}-${i}` : `ph-${i}`}
+                            className="relative overflow-hidden rounded-[8px] bg-zinc-100 ring-1 ring-zinc-200/70 dark:bg-zinc-700/60 dark:ring-zinc-600/60"
+                          >
+                            {src ? (
+                              <Image
+                                src={src}
+                                alt=""
+                                fill
+                                unoptimized
+                                className="object-cover"
+                                sizes="(max-width: 768px) 76px, 76px"
+                              />
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              </Link>
-            </div>
+                </Link>
+              </div>
+            )}
           </div>
 
           {/* 标签词云：正常参与滚动 */}
