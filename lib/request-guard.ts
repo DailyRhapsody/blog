@@ -8,6 +8,18 @@ type Bucket = {
 
 const buckets = new Map<string, Bucket>();
 
+/** 定期清理过期桶，防止内存无限增长 */
+const CLEANUP_INTERVAL = 60_000; // 60s
+let lastCleanup = Date.now();
+function cleanupExpiredBuckets() {
+  const now = Date.now();
+  if (now - lastCleanup < CLEANUP_INTERVAL) return;
+  lastCleanup = now;
+  for (const [key, bucket] of buckets) {
+    if (bucket.resetAt <= now) buckets.delete(key);
+  }
+}
+
 const BOT_UA_RE =
   /(bot|spider|crawler|curl|wget|python-requests|scrapy|httpclient|headless|phantom|playwright|puppeteer|go-http-client|axios|got|node-fetch|postman|insomnia|rest-client|java|php|ruby|perl|dotnet|csharp)/i;
 
@@ -63,16 +75,23 @@ function isSuspiciousRequest(req: Request) {
 export function checkOriginOrReferer(req: Request): boolean {
   const origin = req.headers.get("origin");
   const referer = req.headers.get("referer");
-  const host = req.headers.get("host");
+  const host = (req.headers.get("host") || "").split(":")[0]!.toLowerCase();
 
-  if (origin && !origin.includes(host || "")) {
+  function hostMatches(url: string): boolean {
+    try {
+      return new URL(url).hostname.toLowerCase() === host;
+    } catch {
+      return false;
+    }
+  }
+
+  if (origin && !hostMatches(origin)) {
     return false;
   }
-  if (referer && !referer.includes(host || "")) {
-    // 允许空 Referer (虽然有些浏览器会剥离它，但纯 API 调用通常带 Referer 或 Origin)
-    // 但对于我们的站点内部 API 应该带上本站 Referer
-    return true; 
+  if (referer && !hostMatches(referer)) {
+    return false;
   }
+  // 两者皆无时放行（兼容部分合法客户端）
   return true;
 }
 
@@ -130,6 +149,8 @@ export async function guardApiRequest(
   if (!allowed) {
     return tooManyRequests(Date.now() + 60_000);
   }
+
+  cleanupExpiredBuckets();
 
   const now = Date.now();
   const key = `${scope}:${ip}`;

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { timingSafeEqual } from "node:crypto";
 import { createSessionCookie } from "@/lib/auth";
 import { guardApiRequest } from "@/lib/request-guard";
 import { rejectCrossSiteWrite } from "@/lib/same-origin";
@@ -29,7 +30,12 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
-  if (body.password !== password) {
+  const inputBuf = Buffer.from(String(body.password ?? ""));
+  const expectedBuf = Buffer.from(password);
+  const isMatch =
+    inputBuf.length === expectedBuf.length &&
+    timingSafeEqual(inputBuf, expectedBuf);
+  if (!isMatch) {
     await sleepLoginPenalty();
     return NextResponse.json({ error: "Wrong password" }, { status: 401 });
   }

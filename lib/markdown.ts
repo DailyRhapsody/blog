@@ -89,11 +89,16 @@ marked.use({
   breaks: true,
   hooks: {
     postprocess(html) {
-      return DOMPurify.sanitize(html, {
+      const clean = DOMPurify.sanitize(html, {
         USE_PROFILES: { html: true },
         ADD_TAGS: ["input"],
         ADD_ATTR: ["target", "rel", "checked", "disabled", "type"],
       });
+      // 仅保留 checkbox input（GFM 待办列表），移除其他 input 类型防止 UI 伪装
+      return clean.replace(
+        /<input\b[^>]*>/gi,
+        (tag) => /type\s*=\s*["']?checkbox/i.test(tag) ? tag : "",
+      );
     },
   },
   renderer: {

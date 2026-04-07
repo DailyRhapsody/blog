@@ -33,10 +33,15 @@ export async function getComments(diaryId: number): Promise<Comment[]> {
 }
 
 export async function addComment(comment: Omit<Comment, "id" | "createdAt">): Promise<Comment> {
+  const author = String(comment.author ?? "").trim().slice(0, 50);
+  const content = String(comment.content ?? "").trim().slice(0, 5000);
+  if (!author || !content) {
+    throw new Error("Author and content are required");
+  }
   const all = await readFromFile();
   const id = String(Date.now() + "-" + Math.random().toString(36).slice(2, 9));
   const createdAt = new Date().toISOString();
-  const newComment: Comment = { ...comment, id, createdAt };
+  const newComment: Comment = { id, diaryId: comment.diaryId, author, content, createdAt };
   all.push(newComment);
   await writeToFile(all);
   return newComment;

@@ -157,7 +157,15 @@ export async function POST(req: Request) {
       summary,
       location: body.location?.trim() || "",
       tags: extractHashtagsFromMarkdown(summary),
-      images: Array.isArray(body.images) ? body.images : [],
+      images: Array.isArray(body.images)
+        ? body.images
+            .filter((x): x is string => typeof x === "string" && x.trim() !== "")
+            .slice(0, 50)
+            .filter((u) => {
+              if (u.startsWith("/")) return true;
+              try { const p = new URL(u).protocol; return p === "https:" || p === "http:"; } catch { return false; }
+            })
+        : [],
     };
     diaries.unshift(newDiary);
     diaries.sort((a, b) => {

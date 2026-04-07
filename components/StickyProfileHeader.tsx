@@ -218,7 +218,16 @@ export default function StickyProfileHeader({
       : Math.max(HEADER_COLLAPSED, HEADER_EXPANDED - scrollY);
   const isCollapsed = isReturning && !isHeaderExpanding ? true : scrollY >= COLLAPSE_AT;
 
-  const bgUrl = profile?.headerBg?.trim() || "/header-bg.png";
+  const rawBgUrl = profile?.headerBg?.trim() || "/header-bg.png";
+  // 只允许相对路径或 http(s) URL，防止 javascript: / data: 协议注入
+  const bgUrl = (() => {
+    if (rawBgUrl.startsWith("/")) return rawBgUrl;
+    try {
+      const u = new URL(rawBgUrl);
+      if (u.protocol === "https:" || u.protocol === "http:") return rawBgUrl;
+    } catch { /* invalid URL */ }
+    return "/header-bg.png";
+  })();
 
   function renderAvatar(size: "sm" | "lg") {
     const ring = (
