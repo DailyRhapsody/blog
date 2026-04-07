@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import RainbowBrushTrail from "@/components/RainbowBrushTrail";
@@ -40,7 +39,7 @@ function useIsAdmin() {
   const [ok, setOk] = useState(false);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    fetch("/api/auth/session")
+    fetch("/api/auth/session", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : { ok: false }))
       .then((d) => setOk(!!d?.ok))
       .catch(() => setOk(false))
@@ -126,14 +125,15 @@ function MomentCard({
             }`}
             onClick={() => onImageClick(urls, idx, rowKey)}
           >
-            <Image
+            {/* 原生 img：Supabase/CDN 任意公网 URL 不受 next/image 域名限制 */}
+            <img
               src={m.thumbUrl || m.url}
               alt=""
-              fill
-              className={n === 1 ? "object-contain" : "object-cover"}
-              sizes={n === 1 ? "100vw" : "(max-width:768px) 33vw, 240px"}
+              className={`absolute inset-0 h-full w-full ${
+                n === 1 ? "object-contain" : "object-cover"
+              }`}
               loading="lazy"
-              unoptimized
+              decoding="async"
             />
           </button>
         ))}
@@ -164,14 +164,14 @@ export default function GalleryPage() {
   const loadMoreLock = useRef(false);
 
   useEffect(() => {
-    fetch("/api/profile")
+    fetch("/api/profile", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((p: Profile | null) => setProfile(p))
       .catch(() => setProfile(null));
   }, []);
 
   useEffect(() => {
-    fetch("/api/gallery")
+    fetch("/api/gallery", { credentials: "include" })
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => setLegacyItems(Array.isArray(data) ? data : []))
       .catch(() => setLegacyItems([]));
@@ -185,7 +185,9 @@ export default function GalleryPage() {
       setLoadingMore(true);
     }
     try {
-      const res = await fetch(`/api/moments?limit=8&offset=${fromOffset}`);
+      const res = await fetch(`/api/moments?limit=8&offset=${fromOffset}`, {
+        credentials: "include",
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (replace) setMomentItems([]);
@@ -247,7 +249,7 @@ export default function GalleryPage() {
     setRefreshing(true);
     setOffset(0);
     setHasMore(true);
-    void fetch("/api/gallery")
+    void fetch("/api/gallery", { credentials: "include" })
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => setLegacyItems(Array.isArray(data) ? data : []))
       .catch(() => setLegacyItems([]));
