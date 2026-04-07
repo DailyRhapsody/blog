@@ -33,13 +33,15 @@ export default function AvatarLifeRing({
   src,
   size,
   className = "",
-  spinning = false,
+  spinState = "off",
 }: {
   src: string;
   size: keyof typeof SIZE_MAP;
   className?: string;
-  /** 为 true 时头像区域慢速旋转（如文章页背景音乐播放中） */
-  spinning?: boolean;
+  /**
+   * 文章页背景音乐：播放中旋转；暂停时用 animation-play-state 冻结在当前角度（不回到 0°）
+   */
+  spinState?: "off" | "running" | "paused";
 }) {
   const { outer, image, stroke, imageClass } = SIZE_MAP[size];
   const haloStroke = Math.max(stroke * 2.4, stroke + 3);
@@ -194,7 +196,12 @@ export default function AvatarLifeRing({
         className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-full ${imageClass}`}
       >
         <div
-          className={`h-full w-full ${spinning ? "dr-avatar-spin-slow" : ""}`}
+          className={`h-full w-full ${spinState !== "off" ? "dr-avatar-spin-slow" : ""}`}
+          style={
+            spinState === "paused"
+              ? { animationPlayState: "paused" as const }
+              : undefined
+          }
         >
           <Image
             src={src || "/avatar.png"}

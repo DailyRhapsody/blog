@@ -177,7 +177,9 @@ export default function StickyProfileHeader({
       <AvatarLifeRing
         src={profile?.avatar || "/avatar.png"}
         size={size}
-        spinning={hasEntriesBgm && bgmPlaying}
+        spinState={
+          hasEntriesBgm ? (bgmPlaying ? "running" : "paused") : "off"
+        }
       />
     );
     if (!hasEntriesBgm) {
