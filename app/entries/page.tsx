@@ -1004,7 +1004,12 @@ export default function EntriesPage() {
           className="entries-flip-panel mx-auto flex max-w-4xl flex-col pb-8"
           data-flip-visible={entriesFlipped ? "true" : "false"}
         >
-          <StickyProfileHeader profile={profile} />
+          <StickyProfileHeader
+            profile={profile}
+            entriesBgmSrc={
+              process.env.NEXT_PUBLIC_ENTRIES_BGM_SRC?.trim() || undefined
+            }
+          />
 
           <div
             ref={contentWrapperRef}
@@ -1019,7 +1024,7 @@ export default function EntriesPage() {
             className={!hasMore && isRebounding ? "rebound-transition" : ""}
           >
           <div className="px-4 pt-5">
-          <div className="sticky top-14 z-20 mb-5 space-y-5 bg-zinc-100/92 pb-3 backdrop-blur supports-[backdrop-filter]:bg-zinc-100/70 dark:bg-zinc-950/92 dark:supports-[backdrop-filter]:bg-zinc-950/70">
+          <div className="sticky top-[4.25rem] z-20 mb-5 bg-zinc-100/92 pb-3 backdrop-blur supports-[backdrop-filter]:bg-zinc-100/70 dark:bg-zinc-950/92 dark:supports-[backdrop-filter]:bg-zinc-950/70">
             {/* 顶部功能区：日历热力图（左）+ 画廊入口（右）；顶部收缩后保持吸顶 */}
             <div className="flex flex-wrap items-start gap-6 [contain:layout_paint]">
               <CalendarHeatmap datesWithPosts={datesWithPosts} />
@@ -1055,41 +1060,41 @@ export default function EntriesPage() {
                 </div>
               </Link>
             </div>
-
-            {/* 标签词云：与看板一起吸顶，词云以下内容滚动 */}
-            {tagCounts.length > 0 && (
-              <section className="rounded-2xl border border-zinc-200 bg-white/60 px-4 py-5 shadow-sm transition-apple dark:border-zinc-800 dark:bg-zinc-900/40 [contain:layout_paint]">
-                <div className="flex flex-wrap items-center gap-2">
-                  {tagCounts.map(({ name, value }) => (
-                    <button
-                      key={name}
-                      type="button"
-                      onClick={() => handleTagClick(name)}
-                      className={`rounded-full px-2.5 py-1 transition-apple focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-zinc-900 ${getSizeClass(value, maxTagCount)} ${
-                        selectedTag === name
-                          ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                          : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 hover:scale-105 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                      }`}
-                    >
-                      {name}
-                    </button>
-                  ))}
-                </div>
-                {selectedTag && (
-                  <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-                    当前筛选：{selectedTag}（共 {totalPosts} 篇）
-                    <button
-                      type="button"
-                      onClick={() => handleTagClick(selectedTag)}
-                      className="ml-2 rounded underline transition-apple hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2"
-                    >
-                      取消
-                    </button>
-                  </p>
-                )}
-              </section>
-            )}
           </div>
+
+          {/* 标签词云：正常参与滚动 */}
+          {tagCounts.length > 0 && (
+            <section className="mb-5 rounded-2xl border border-zinc-200 bg-white/60 px-4 py-5 shadow-sm transition-apple dark:border-zinc-800 dark:bg-zinc-900/40 [contain:layout_paint]">
+              <div className="flex flex-wrap items-center gap-2">
+                {tagCounts.map(({ name, value }) => (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() => handleTagClick(name)}
+                    className={`rounded-full px-2.5 py-1 transition-apple focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-zinc-900 ${getSizeClass(value, maxTagCount)} ${
+                      selectedTag === name
+                        ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                        : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 hover:scale-105 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                    }`}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+              {selectedTag && (
+                <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+                  当前筛选：{selectedTag}（共 {totalPosts} 篇）
+                  <button
+                    type="button"
+                    onClick={() => handleTagClick(selectedTag)}
+                    className="ml-2 rounded underline transition-apple hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2"
+                  >
+                    取消
+                  </button>
+                </p>
+              )}
+            </section>
+          )}
 
           {/* 日记列表：流式滚动 */}
           <section className="entries-page-fade-in space-y-4 border-t border-zinc-200 pt-5 text-sm dark:border-zinc-800">

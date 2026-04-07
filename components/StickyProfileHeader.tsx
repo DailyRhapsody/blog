@@ -14,18 +14,60 @@ export type StickyProfileHeaderData = {
 
 /**
  * 与 /entries 文章列表页一致的粘性顶栏：背景图、滚动收缩、点击栏展开、头像与签名。
+ * 传入 `entriesBgmSrc` 时（仅文章页）：进入后尝试播放该音频，头像慢转；点头像暂停/继续，点昵称回首页。
  */
 export default function StickyProfileHeader({
   profile,
+  entriesBgmSrc,
 }: {
   profile: StickyProfileHeaderData | null;
+  /** 文章页背景音乐 URL（如 `/audio/houlai-dewomen.mp3`）；不传则头像仍可点进首页 */
+  entriesBgmSrc?: string;
 }) {
   const [scrollY, setScrollY] = useState(0);
   const [isReturnToTopAnimating, setIsReturnToTopAnimating] = useState(false);
   const [isHeaderExpanding, setIsHeaderExpanding] = useState(false);
+  const [bgmPlaying, setBgmPlaying] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const returnToTopPhaseRef = useRef<0 | 1 | 2>(0);
   const returnToTopRafRef = useRef<number>(0);
+
+  const hasEntriesBgm = Boolean(entriesBgmSrc?.trim());
+
+  const toggleBgm = useCallback(() => {
+    const a = audioRef.current;
+    if (!a || !hasEntriesBgm) return;
+    if (a.paused) {
+      void a.play()
+        .then(() => setBgmPlaying(true))
+        .catch(() => setBgmPlaying(false));
+    } else {
+      a.pause();
+      setBgmPlaying(false);
+    }
+  }, [hasEntriesBgm]);
+
+  useEffect(() => {
+    if (!hasEntriesBgm) return;
+    const a = audioRef.current;
+    if (!a) return;
+    const onPlay = () => setBgmPlaying(true);
+    const onPause = () => setBgmPlaying(false);
+    a.addEventListener("play", onPlay);
+    a.addEventListener("pause", onPause);
+    return () => {
+      a.removeEventListener("play", onPlay);
+      a.removeEventListener("pause", onPause);
+    };
+  }, [hasEntriesBgm]);
+
+  useEffect(() => {
+    if (!hasEntriesBgm) return;
+    const a = audioRef.current;
+    if (!a) return;
+    void a.play().catch(() => setBgmPlaying(false));
+  }, [hasEntriesBgm]);
 
   const runReturnToTop = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -130,6 +172,37 @@ export default function StickyProfileHeader({
 
   const bgUrl = profile?.headerBg?.trim() || "/header-bg.png";
 
+  function renderAvatar(size: "sm" | "lg") {
+    const ring = (
+      <AvatarLifeRing
+        src={profile?.avatar || "/avatar.png"}
+        size={size}
+        spinning={hasEntriesBgm && bgmPlaying}
+      />
+    );
+    if (!hasEntriesBgm) {
+      return (
+        <Link href="/" className="shrink-0 leading-none" aria-label="首页">
+          {ring}
+        </Link>
+      );
+    }
+    return (
+      <button
+        type="button"
+        className="shrink-0 cursor-pointer leading-none"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          toggleBgm();
+        }}
+        aria-label={bgmPlaying ? "暂停音乐" : "播放音乐"}
+      >
+        {ring}
+      </button>
+    );
+  }
+
   return (
     <header
       ref={headerRef}
@@ -148,36 +221,34 @@ export default function StickyProfileHeader({
       />
       <div className="absolute inset-0 bg-black/50" />
       {isCollapsed && !isReturning && (
-        <button
-          type="button"
-          className="absolute inset-0 z-10 cursor-pointer"
-          onClick={runReturnToTop}
-          aria-label="回到顶部并展开"
-        />
+        <div className="absolute inset-0 z-10 flex items-stretch justify-center px-5">
+          <button
+            type="button"
+            className="h-full min-w-0 flex-1 cursor-pointer"
+            onClick={runReturnToTop}
+            aria-label="回到顶部并展开（左侧区域）"
+          />
+          <div className="pointer-events-none flex shrink-0 items-center gap-2 py-0">
+            <span className="pointer-events-auto">{renderAvatar("sm")}</span>
+            <Link
+              href="/"
+              className="pointer-events-auto inline-flex min-w-0 w-fit self-center"
+              aria-label="首页"
+            >
+              <p className="whitespace-nowrap text-base font-bold leading-tight text-white">
+                {profile?.name ?? "DailyRhapsody"}
+              </p>
+            </Link>
+          </div>
+          <button
+            type="button"
+            className="h-full min-w-0 flex-1 cursor-pointer"
+            onClick={runReturnToTop}
+            aria-label="回到顶部并展开（右侧区域）"
+          />
+        </div>
       )}
       <div className="relative flex h-full w-full flex-col justify-center px-5">
-        <div
-          className={`absolute inset-0 flex items-center justify-center px-5 ${
-            isCollapsed ? "pointer-events-auto" : "pointer-events-none"
-          }`}
-        >
-          <div
-            className={`inline-flex transition-[transform,opacity] duration-400 ease-out ${
-              isCollapsed ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
-            }`}
-          >
-            <div className="inline-flex max-w-full items-center gap-2">
-              <Link href="/" className="shrink-0 leading-none" aria-label="首页">
-                <AvatarLifeRing src={profile?.avatar || "/avatar.png"} size="sm" />
-              </Link>
-              <Link href="/" className="inline-flex min-w-0 w-fit self-center">
-                <p className="whitespace-nowrap text-base font-bold leading-tight text-white">
-                  {profile?.name ?? "DailyRhapsody"}
-                </p>
-              </Link>
-            </div>
-          </div>
-        </div>
         <div
           className={`min-w-0 flex-1 transition-[transform,opacity] duration-400 ease-out ${
             isCollapsed
@@ -190,9 +261,7 @@ export default function StickyProfileHeader({
               hasSignature ? "self-start" : "self-center mx-auto"
             }`}
           >
-            <Link href="/" className="shrink-0 leading-none" aria-label="首页">
-              <AvatarLifeRing src={profile?.avatar || "/avatar.png"} size="lg" />
-            </Link>
+            {renderAvatar("lg")}
             <div
               className={`flex min-w-0 flex-col justify-center gap-1 ${
                 hasSignature ? "" : "items-center text-center"
@@ -215,6 +284,17 @@ export default function StickyProfileHeader({
           </div>
         </div>
       </div>
+      {hasEntriesBgm && entriesBgmSrc && (
+        <audio
+          ref={audioRef}
+          src={entriesBgmSrc.trim()}
+          loop
+          playsInline
+          preload="auto"
+          className="pointer-events-none absolute h-0 w-0 opacity-0"
+          aria-hidden
+        />
+      )}
     </header>
   );
 }

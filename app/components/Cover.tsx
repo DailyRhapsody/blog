@@ -2,7 +2,10 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+
+const AUTO_ENTER_MS = 3000;
 
 type ProfileCover = {
   homeCoverUrl?: string;
@@ -10,6 +13,7 @@ type ProfileCover = {
 };
 
 export default function Cover() {
+  const router = useRouter();
   const [cover, setCover] = useState<ProfileCover | null>(null);
 
   useEffect(() => {
@@ -24,6 +28,34 @@ export default function Cover() {
       cancelled = true;
     };
   }, []);
+
+  /** 封面停留超过 AUTO_ENTER_MS 且无操作则进入文章列表；任意交互则取消 */
+  useEffect(() => {
+    let done = false;
+    const timer = window.setTimeout(() => {
+      if (done) return;
+      done = true;
+      router.replace("/entries");
+    }, AUTO_ENTER_MS);
+
+    const cancel = () => {
+      if (done) return;
+      done = true;
+      window.clearTimeout(timer);
+    };
+
+    const opts: AddEventListenerOptions = { capture: true, passive: true };
+    window.addEventListener("pointerdown", cancel, opts);
+    window.addEventListener("wheel", cancel, opts);
+    window.addEventListener("keydown", cancel, { capture: true });
+
+    return () => {
+      cancel();
+      window.removeEventListener("pointerdown", cancel, true);
+      window.removeEventListener("wheel", cancel, true);
+      window.removeEventListener("keydown", cancel, true);
+    };
+  }, [router]);
 
   const mediaUrl = cover?.homeCoverUrl?.trim();
   const useVideo = Boolean(mediaUrl && cover?.homeCoverIsVideo);

@@ -144,3 +144,19 @@ input[type="number"] {
   }
 }
 
+/* 文章页顶栏：背景音乐播放时头像慢速旋转 */
+@keyframes dr-avatar-spin-slow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.dr-avatar-spin-slow {
+  animation: dr-avatar-spin-slow 18s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dr-avatar-spin-slow {
+    animation: none;
+  }
+}
+

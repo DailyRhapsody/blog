@@ -33,10 +33,13 @@ export default function AvatarLifeRing({
   src,
   size,
   className = "",
+  spinning = false,
 }: {
   src: string;
   size: keyof typeof SIZE_MAP;
   className?: string;
+  /** 为 true 时头像区域慢速旋转（如文章页背景音乐播放中） */
+  spinning?: boolean;
 }) {
   const { outer, image, stroke, imageClass } = SIZE_MAP[size];
   const haloStroke = Math.max(stroke * 2.4, stroke + 3);
@@ -190,16 +193,20 @@ export default function AvatarLifeRing({
       <div
         className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-full ${imageClass}`}
       >
-        <Image
-          src={src || "/avatar.png"}
-          alt=""
-          width={image}
-          height={image}
-          className="h-full w-full object-cover"
-          onError={(e) => {
-            (e.target as HTMLImageElement).style.display = "none";
-          }}
-        />
+        <div
+          className={`h-full w-full ${spinning ? "dr-avatar-spin-slow" : ""}`}
+        >
+          <Image
+            src={src || "/avatar.png"}
+            alt=""
+            width={image}
+            height={image}
+            className="h-full w-full object-cover"
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = "none";
+            }}
+          />
+        </div>
       </div>
       {tooltip}
     </div>
