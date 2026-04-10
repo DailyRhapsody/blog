@@ -319,21 +319,10 @@ export default function StickyProfileHeader({
               : "flex flex-col justify-center translate-y-0 opacity-100"
           }`}
         >
-          <div
-            className={`inline-flex w-fit max-w-full shrink-0 items-center gap-4 ${
-              hasSignature ? "self-start" : "self-center mx-auto"
-            }`}
-          >
+          <div className="inline-flex w-fit max-w-full shrink-0 items-center gap-4 self-start">
             {renderAvatar("lg")}
-            <div
-              className={`flex min-w-0 flex-col justify-center gap-1 ${
-                hasSignature ? "" : "items-center text-center"
-              }`}
-            >
-              <Link
-                href="/"
-                className={`inline-flex w-fit ${hasSignature ? "self-start" : "self-center"}`}
-              >
+            <div className="flex min-w-0 flex-col justify-center gap-1">
+              <Link href="/" className="inline-flex w-fit self-start">
                 <p className="whitespace-nowrap text-lg font-bold text-white">
                   {profile?.name ?? "DailyRhapsody"}
                 </p>
