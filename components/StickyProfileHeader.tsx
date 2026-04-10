@@ -19,10 +19,16 @@ export type StickyProfileHeaderData = {
 export default function StickyProfileHeader({
   profile,
   entriesBgmSrc,
+  externalScrollY,
+  onReturnToTop,
 }: {
   profile: StickyProfileHeaderData | null;
   /** 文章页背景音乐 URL（如 `/audio/houlai-dewomen.mp3`）；不传则头像仍可点进首页 */
   entriesBgmSrc?: string;
+  /** 外部传入的虚拟 scrollY，用于三阶段收缩；不传则使用内部 window.scrollY */
+  externalScrollY?: number;
+  /** 回到顶部时通知父组件重置 virtualScroll */
+  onReturnToTop?: () => void;
 }) {
   const [scrollY, setScrollY] = useState(0);
   const [isReturnToTopAnimating, setIsReturnToTopAnimating] = useState(false);
@@ -120,7 +126,11 @@ export default function StickyProfileHeader({
   const runReturnToTop = useCallback(() => {
     if (typeof window === "undefined") return;
     const startY = window.scrollY;
-    if (startY <= 0) return;
+    // 如果页面没滚动但 virtualScroll 有值，直接重置 virtualScroll
+    if (startY <= 0) {
+      onReturnToTop?.();
+      return;
+    }
 
     const HEADER_EXPANDED = 260;
     const HEADER_COLLAPSED = 56;
@@ -151,6 +161,8 @@ export default function StickyProfileHeader({
       } else {
         window.scrollTo(0, 0);
         setScrollY(0);
+        // 通知父组件重置 virtualScroll
+        onReturnToTop?.();
         returnToTopPhaseRef.current = 2;
         setIsHeaderExpanding(true);
 
@@ -181,7 +193,7 @@ export default function StickyProfileHeader({
     }
 
     returnToTopRafRef.current = requestAnimationFrame(scrollTick);
-  }, []);
+  }, [onReturnToTop]);
 
   useEffect(() => {
     let scrollRaf = 0;
@@ -206,7 +218,8 @@ export default function StickyProfileHeader({
   const HEADER_COLLAPSED = 56;
   const threshold = HEADER_EXPANDED - HEADER_COLLAPSED;
   const COLLAPSE_AT = threshold + 10;
-  const nearTop = scrollY < 28;
+  const effectiveScrollY = typeof externalScrollY === "number" ? externalScrollY : scrollY;
+  const nearTop = effectiveScrollY < 28;
   const isReturning = isReturnToTopAnimating;
   const signatureTrimmed = profile?.signature?.trim() ?? "";
   const hasSignature = signatureTrimmed.length > 0;
@@ -215,8 +228,8 @@ export default function StickyProfileHeader({
     ? HEADER_COLLAPSED
     : nearTop
       ? HEADER_EXPANDED
-      : Math.max(HEADER_COLLAPSED, HEADER_EXPANDED - scrollY);
-  const isCollapsed = isReturning && !isHeaderExpanding ? true : scrollY >= COLLAPSE_AT;
+      : Math.max(HEADER_COLLAPSED, HEADER_EXPANDED - effectiveScrollY);
+  const isCollapsed = isReturning && !isHeaderExpanding ? true : effectiveScrollY >= COLLAPSE_AT;
 
   const bgUrl = profile?.headerBg?.trim() || "/header-bg.png";
 

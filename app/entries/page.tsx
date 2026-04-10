@@ -9,6 +9,8 @@ import { markdownPreviewProseClass, renderMarkdown } from "@/lib/markdown";
 import { createShareCardElement } from "@/lib/share-card";
 import RainbowBrushTrail from "@/components/RainbowBrushTrail";
 import StickyProfileHeader from "@/components/StickyProfileHeader";
+import { formatMomentRelative } from "@/lib/moment-relative";
+import { MomentLightbox } from "@/app/gallery/MomentLightbox";
 
 type Diary = {
   id: number;
@@ -27,6 +29,57 @@ type Comment = {
   content: string;
   createdAt: string;
 };
+
+/* ── 画廊相关类型 ── */
+type PublicMedia = {
+  url: string;
+  thumbUrl: string;
+  mediaType: string;
+  width: number;
+  height: number;
+  duration: number;
+  sortOrder: number;
+};
+
+type PublicMoment = {
+  id: number;
+  type: 1 | 2;
+  createdAt: string;
+  media: PublicMedia[];
+};
+
+type GalleryLegacyItem = {
+  id: number;
+  createdAt: string;
+  isPublic?: boolean;
+  images: string[];
+};
+
+type GalleryTimelineRow = { rowKey: string; createdAt: string; moment: PublicMoment };
+
+function galleryGridClass(n: number) {
+  if (n <= 1) return "grid-cols-1";
+  if (n <= 4) return "grid-cols-2";
+  return "grid-cols-3";
+}
+
+function legacyToMoment(g: GalleryLegacyItem): PublicMoment {
+  const imgs = (g.images ?? []).filter((u) => typeof u === "string" && u.trim());
+  return {
+    id: g.id,
+    type: 1,
+    createdAt: g.createdAt,
+    media: imgs.map((url, i) => ({
+      url: url.trim(),
+      thumbUrl: url.trim(),
+      mediaType: "image/jpeg",
+      width: 0,
+      height: 0,
+      duration: 0,
+      sortOrder: i,
+    })),
+  };
+}
 
 const PAGE_SIZE = 30;
 
@@ -717,13 +770,26 @@ export default function EntriesPage() {
   const [tagCounts, setTagCounts] = useState<{ name: string; value: number }[]>([]);
   const [datesFromApi, setDatesFromApi] = useState<string[]>([]);
   const [galleryThumbs, setGalleryThumbs] = useState<string[]>([]);
+  const [galleryLegacy, setGalleryLegacy] = useState<GalleryLegacyItem[]>([]);
+  const [galleryMoments, setGalleryMoments] = useState<PublicMoment[]>([]);
+  const [galleryOffset, setGalleryOffset] = useState(0);
+  const [galleryHasMore, setGalleryHasMore] = useState(true);
+  const [galleryLoading, setGalleryLoading] = useState(true);
+  const [galleryLoadingMore, setGalleryLoadingMore] = useState(false);
+  const [lightbox, setLightbox] = useState<{ urls: string[]; i: number; lbKey: string } | null>(null);
+  const galleryLoadLock = useRef(false);
+  const gallerySentinelRef = useRef<HTMLDivElement>(null);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isAdminSession, setIsAdminSession] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [entriesFlipped, setEntriesFlipped] = useState(false);
-  const [isTopToolsCollapsed, setIsTopToolsCollapsed] = useState(false);
+  const [scrollYPos, setScrollYPos] = useState(0);
+  const [virtualScroll, setVirtualScroll] = useState(0);
+  const virtualScrollRef = useRef(0);
+  const [activeTopTab, setActiveTopTab] = useState(0); // 0=博客, 1=画廊
+  const activeTopTabRef = useRef(0);
   const [eggPullY, setEggPullY] = useState(0);
   const [isRebounding, setIsRebounding] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -737,10 +803,23 @@ export default function EntriesPage() {
   const listAppendInFlightRef = useRef(false);
 
   const datesWithPosts = useMemo(() => new Set(datesFromApi), [datesFromApi]);
+  const thisMonthPostCount = useMemo(() => {
+    const now = new Date();
+    const prefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    let count = 0;
+    datesWithPosts.forEach((d) => { if (d.startsWith(prefix)) count++; });
+    return count;
+  }, [datesWithPosts]);
   const totalPosts = total;
   const currentEntries = items;
   const hasMore = items.length < total && total > 0;
   const maxTagCount = tagCounts[0]?.value ?? 1;
+
+  /* ── 两阶段收缩：virtualScroll 驱动 header → 原生滚动 ── */
+  const HEADER_EXPANDED_H = 260;
+  const HEADER_COLLAPSED_H = 56;
+  const PHASE1_RANGE = HEADER_EXPANDED_H - HEADER_COLLAPSED_H; // 204: header 收缩量
+  const TOTAL_ABSORB = PHASE1_RANGE; // header 收缩完即放行原生滚动
 
   useEffect(() => {
     hasMoreRef.current = hasMore;
@@ -762,9 +841,72 @@ export default function EntriesPage() {
           if (imgs.length >= 4) break;
         }
         setGalleryThumbs(imgs.slice(0, 4));
+        setGalleryLegacy(list);
       })
-      .catch(() => setGalleryThumbs([]));
+      .catch(() => { setGalleryThumbs([]); setGalleryLegacy([]); });
   }, []);
+
+  /* ── 画廊：加载 moments 分页 ── */
+  const loadGalleryPage = useCallback(async (fromOffset: number, replace: boolean) => {
+    if (replace) setGalleryLoading(true);
+    else {
+      if (galleryLoadLock.current) return;
+      galleryLoadLock.current = true;
+      setGalleryLoadingMore(true);
+    }
+    try {
+      const res = await fetch(`/api/moments?limit=8&offset=${fromOffset}`, { credentials: "include" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (replace) setGalleryMoments([]);
+        setGalleryHasMore(false);
+        return;
+      }
+      const next: PublicMoment[] = Array.isArray(data.items) ? data.items : [];
+      setGalleryHasMore(!!data.hasMore);
+      setGalleryOffset(typeof data.nextOffset === "number" ? data.nextOffset : fromOffset + next.length);
+      if (replace) setGalleryMoments(next);
+      else setGalleryMoments((prev) => [...prev, ...next]);
+    } catch {
+      if (replace) setGalleryMoments([]);
+      setGalleryHasMore(false);
+    } finally {
+      setGalleryLoading(false);
+      setGalleryLoadingMore(false);
+      if (!replace) galleryLoadLock.current = false;
+    }
+  }, []);
+
+  useEffect(() => { void loadGalleryPage(0, true); }, [loadGalleryPage]);
+
+  const galleryTimeline = useMemo(() => {
+    const legacyVisible = galleryLegacy.filter((g) => g?.images?.length && (isAdminSession || g.isPublic !== false));
+    const legacyRows: GalleryTimelineRow[] = legacyVisible.map((g) => ({
+      rowKey: `legacy-${g.id}`, createdAt: g.createdAt, moment: legacyToMoment(g),
+    }));
+    const momentRows: GalleryTimelineRow[] = galleryMoments.map((m) => ({
+      rowKey: `moment-${m.id}`, createdAt: m.createdAt, moment: m,
+    }));
+    return [...legacyRows, ...momentRows].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+  }, [galleryLegacy, galleryMoments, isAdminSession]);
+
+  /* ── 画廊无限滚动 ── */
+  useEffect(() => {
+    if (activeTopTab !== 1) return;
+    const el = gallerySentinelRef.current;
+    if (!el || !galleryHasMore || galleryLoading || galleryLoadingMore) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (!entries[0]?.isIntersecting || galleryLoadingMore) return;
+        void loadGalleryPage(galleryOffset, false);
+      },
+      { rootMargin: "240px", threshold: 0 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [activeTopTab, galleryHasMore, galleryLoading, galleryLoadingMore, galleryOffset, loadGalleryPage]);
 
   useEffect(() => {
     return () => {
@@ -861,21 +1003,171 @@ export default function EntriesPage() {
     return () => clearTimeout(t);
   }, []);
 
+  /* ── 三阶段滚动拦截：virtualScroll 吸收 header/tools 收缩，然后放行原生滚动 ── */
   useEffect(() => {
     let rafId = 0;
-    const COLLAPSE_SCROLL_Y = 96;
-    const onScroll = () => {
+    const syncScrollY = () => {
       if (rafId) return;
       rafId = requestAnimationFrame(() => {
         rafId = 0;
-        setIsTopToolsCollapsed(window.scrollY > COLLAPSE_SCROLL_Y);
+        setScrollYPos(window.scrollY);
       });
     };
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
+    syncScrollY();
+    window.addEventListener("scroll", syncScrollY, { passive: true });
+
+    function onWheel(e: WheelEvent) {
+      // 水平滑动用于切换 tab，不拦截
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 2) return;
+
+      const vs = virtualScrollRef.current;
+
+      if (e.deltaY > 0) {
+        // 向下滚
+        if (vs < TOTAL_ABSORB) {
+          e.preventDefault();
+          const next = Math.min(TOTAL_ABSORB, vs + e.deltaY);
+          virtualScrollRef.current = next;
+          setVirtualScroll(next);
+          // 如果恰好满了，将剩余 delta 传给原生滚动
+          if (next === TOTAL_ABSORB && vs < TOTAL_ABSORB) {
+            const remaining = e.deltaY - (TOTAL_ABSORB - vs);
+            if (remaining > 0) window.scrollBy(0, remaining);
+          }
+        }
+        // 已满：放行原生滚动
+      } else if (e.deltaY < 0) {
+        // 向上滚
+        const pageY = window.scrollY;
+        if (pageY <= 0 && vs > 0) {
+          e.preventDefault();
+          const next = Math.max(0, vs + e.deltaY);
+          virtualScrollRef.current = next;
+          setVirtualScroll(next);
+        }
+        // pageY > 0：放行原生滚动
+      }
+    }
+
+    // 触摸拦截
+    let touchStartY = 0;
+    let touchLastY = 0;
+    let touchIntercepting = false;
+
+    function onTouchStart(e: TouchEvent) {
+      touchStartY = e.touches[0].clientY;
+      touchLastY = touchStartY;
+      const vs = virtualScrollRef.current;
+      const pageY = window.scrollY;
+      // 在顶部且 virtualScroll 未满时拦截
+      touchIntercepting = (vs < TOTAL_ABSORB && pageY <= 0) || (vs > 0 && pageY <= 0);
+    }
+
+    function onTouchMove(e: TouchEvent) {
+      const currentY = e.touches[0].clientY;
+      const delta = touchLastY - currentY; // 正=下滚
+      touchLastY = currentY;
+
+      const vs = virtualScrollRef.current;
+      const pageY = window.scrollY;
+
+      if (delta > 0 && vs < TOTAL_ABSORB) {
+        // 下滚，吸收
+        e.preventDefault();
+        const next = Math.min(TOTAL_ABSORB, vs + delta);
+        virtualScrollRef.current = next;
+        setVirtualScroll(next);
+        touchIntercepting = true;
+      } else if (delta < 0 && pageY <= 0 && vs > 0) {
+        // 上滚，回退 virtualScroll
+        e.preventDefault();
+        const next = Math.max(0, vs + delta);
+        virtualScrollRef.current = next;
+        setVirtualScroll(next);
+        touchIntercepting = true;
+      } else {
+        touchIntercepting = false;
+      }
+    }
+
+    document.addEventListener("wheel", onWheel, { passive: false });
+    document.addEventListener("touchstart", onTouchStart, { passive: true });
+    document.addEventListener("touchmove", onTouchMove, { passive: false });
+
     return () => {
-      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("scroll", syncScrollY);
+      document.removeEventListener("wheel", onWheel);
+      document.removeEventListener("touchstart", onTouchStart);
+      document.removeEventListener("touchmove", onTouchMove);
       if (rafId) cancelAnimationFrame(rafId);
+    };
+  }, []);
+
+  /* ── activeTopTab ref 同步 ── */
+  useEffect(() => { activeTopTabRef.current = activeTopTab; }, [activeTopTab]);
+
+  /* ── 全局：禁用浏览器左右滑动导航 + 水平滚轮切换 tab ── */
+  useEffect(() => {
+    let accum = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    function onWheel(e: WheelEvent) {
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 2) {
+        e.preventDefault();
+        accum += e.deltaX;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+          if (Math.abs(accum) > 30) {
+            setActiveTopTab((prev) =>
+              accum > 0 ? Math.min(prev + 1, 1) : Math.max(prev - 1, 0),
+            );
+          }
+          accum = 0;
+        }, 80);
+      }
+    }
+
+    /* 全局 touch：页面任意位置左右滑动切 tab */
+    let gStartX = 0, gStartY = 0;
+    let gIsHz: boolean | null = null;
+
+    function onGTouchStart(e: TouchEvent) {
+      gStartX = e.touches[0].clientX;
+      gStartY = e.touches[0].clientY;
+      gIsHz = null;
+    }
+    function onGTouchMove(e: TouchEvent) {
+      if (gIsHz === false) return;
+      const dx = e.touches[0].clientX - gStartX;
+      const dy = e.touches[0].clientY - gStartY;
+      if (gIsHz === null && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+        gIsHz = Math.abs(dx) > Math.abs(dy);
+      }
+      if (gIsHz) e.preventDefault();
+    }
+    function onGTouchEnd(e: TouchEvent) {
+      if (!gIsHz) return;
+      const dx = (e.changedTouches[0]?.clientX ?? gStartX) - gStartX;
+      if (Math.abs(dx) > 50) {
+        setActiveTopTab((prev) =>
+          dx < 0 ? Math.min(prev + 1, 1) : Math.max(prev - 1, 0),
+        );
+      }
+    }
+
+    document.addEventListener("wheel", onWheel, { passive: false });
+    document.addEventListener("touchstart", onGTouchStart, { passive: true });
+    document.addEventListener("touchmove", onGTouchMove, { passive: false });
+    document.addEventListener("touchend", onGTouchEnd);
+    document.documentElement.style.overscrollBehaviorX = "none";
+
+    return () => {
+      document.removeEventListener("wheel", onWheel);
+      document.removeEventListener("touchstart", onGTouchStart);
+      document.removeEventListener("touchmove", onGTouchMove);
+      document.removeEventListener("touchend", onGTouchEnd);
+      document.documentElement.style.overscrollBehaviorX = "";
+      if (timer) clearTimeout(timer);
     };
   }, []);
 
@@ -1028,6 +1320,11 @@ export default function EntriesPage() {
             entriesBgmSrc={
               process.env.NEXT_PUBLIC_ENTRIES_BGM_SRC?.trim() || undefined
             }
+            externalScrollY={virtualScroll}
+            onReturnToTop={() => {
+              virtualScrollRef.current = 0;
+              setVirtualScroll(0);
+            }}
           />
 
           <div
@@ -1043,158 +1340,238 @@ export default function EntriesPage() {
             className={!hasMore && isRebounding ? "rebound-transition" : ""}
           >
           <div className="px-4 pt-5">
-          <div className="sticky top-[4.25rem] z-20 mb-5 bg-zinc-100/92 pb-3 backdrop-blur supports-[backdrop-filter]:bg-zinc-100/70 dark:bg-zinc-950/92 dark:supports-[backdrop-filter]:bg-zinc-950/70">
-            {/* 顶部功能区：日历热力图（左）+ 画廊入口（右）；顶部收缩后保持吸顶 */}
-            {isTopToolsCollapsed ? (
-              <div className="flex flex-wrap items-center gap-2 [contain:layout_paint]">
-                <a
-                  href="#entries"
-                  aria-label="返回日历区域"
-                  className="inline-flex h-9 items-center justify-center rounded-lg border border-zinc-200 bg-white/85 px-4 text-sm font-medium text-zinc-700 shadow-sm transition-apple hover:bg-white dark:border-zinc-700 dark:bg-zinc-800/85 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                >
-                  日历
-                </a>
-                <Link
-                  href="/gallery"
-                  aria-label="打开画廊"
-                  className="inline-flex h-9 items-center justify-center rounded-lg border border-zinc-200 bg-white/85 px-4 text-sm font-medium text-zinc-700 shadow-sm transition-apple hover:bg-white dark:border-zinc-700 dark:bg-zinc-800/85 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                >
-                  画廊
-                </Link>
-              </div>
-            ) : (
-              <div className="flex flex-wrap items-start gap-6 [contain:layout_paint]">
-                <CalendarHeatmap datesWithPosts={datesWithPosts} />
-                <Link
-                  href="/gallery"
-                  aria-label="打开画廊"
-                  className="inline-grid h-[148px] rounded-xl border border-zinc-200 bg-white/80 p-2.5 shadow-sm transition-apple hover:shadow-md dark:border-zinc-700 dark:bg-zinc-800/80"
-                  style={{ width: "min(100%, 168px)" }}
-                >
-                  <div className="grid h-full w-full">
-                    <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-2">
-                      {Array.from({ length: 4 }).map((_, i) => {
-                        const src = galleryThumbs[i];
-                        return (
-                          <div
-                            key={src ? `${src}-${i}` : `ph-${i}`}
-                            className="relative overflow-hidden rounded-[8px] bg-zinc-100 ring-1 ring-zinc-200/70 dark:bg-zinc-700/60 dark:ring-zinc-600/60"
-                          >
-                            {src ? (
-                              <Image
-                                src={src}
-                                alt=""
-                                fill
-                                unoptimized
-                                className="object-cover"
-                                sizes="(max-width: 768px) 76px, 76px"
-                              />
-                            ) : null}
-                          </div>
-                        );
-                      })}
+          <div className="mb-5 flex flex-wrap items-start gap-4">
+            {/* 日历热力图：始终显示，无选中态 */}
+            <CalendarHeatmap datesWithPosts={datesWithPosts} />
+            {/* 博客卡片：activeTopTab===0 选中 */}
+            <button
+              type="button"
+              onClick={() => setActiveTopTab(0)}
+              className={`inline-flex h-[148px] flex-col items-start justify-center rounded-xl border border-zinc-200 bg-white/80 px-5 shadow-sm transition-apple dark:border-zinc-700 dark:bg-zinc-800/80 ${activeTopTab === 0 ? "ring-2 ring-inset ring-zinc-400 dark:ring-zinc-500" : "opacity-60"}`}
+              style={{ width: "min(100%, 168px)" }}
+            >
+              <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">博客</p>
+              <p className="mt-2 text-2xl font-bold text-zinc-900 dark:text-zinc-50">{totalPosts}</p>
+              <p className="text-[0.7rem] text-zinc-500 dark:text-zinc-400">篇文章</p>
+              <p className="mt-1.5 text-[0.7rem] text-zinc-400 dark:text-zinc-500">
+                本月 {thisMonthPostCount} 篇更新
+              </p>
+            </button>
+            {/* 画廊卡片：activeTopTab===1 选中 */}
+            <button
+              type="button"
+              onClick={() => setActiveTopTab(1)}
+              className={`inline-grid h-[148px] rounded-xl border border-zinc-200 bg-white/80 p-2.5 shadow-sm transition-apple dark:border-zinc-700 dark:bg-zinc-800/80 ${activeTopTab === 1 ? "ring-2 ring-inset ring-zinc-400 dark:ring-zinc-500" : "opacity-60"}`}
+              style={{ width: "min(100%, 168px)" }}
+            >
+              <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-2">
+                {Array.from({ length: 4 }).map((_, i) => {
+                  const src = galleryThumbs[i];
+                  return (
+                    <div
+                      key={src ? `${src}-${i}` : `ph-${i}`}
+                      className="relative overflow-hidden rounded-[8px] bg-zinc-100 ring-1 ring-zinc-200/70 dark:bg-zinc-700/60 dark:ring-zinc-600/60"
+                    >
+                      {src ? (
+                        <Image
+                          src={src}
+                          alt=""
+                          fill
+                          unoptimized
+                          className="object-cover"
+                          sizes="(max-width: 768px) 76px, 76px"
+                        />
+                      ) : null}
                     </div>
-                  </div>
-                </Link>
+                  );
+                })}
               </div>
-            )}
+            </button>
           </div>
 
-          {/* 标签词云：正常参与滚动 */}
-          {tagCounts.length > 0 && (
-            <section className="mb-5 rounded-2xl border border-zinc-200 bg-white/60 px-4 py-5 shadow-sm transition-apple dark:border-zinc-800 dark:bg-zinc-900/40 [contain:layout_paint]">
-              <div className="flex flex-wrap items-center gap-2">
-                {tagCounts.map(({ name, value }) => (
-                  <button
-                    key={name}
-                    type="button"
-                    onClick={() => handleTagClick(name)}
-                    className={`rounded-full px-2.5 py-1 transition-apple focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-zinc-900 ${getSizeClass(value, maxTagCount)} ${
-                      selectedTag === name
-                        ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                        : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 hover:scale-105 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                    }`}
-                  >
-                    {name}
-                  </button>
-                ))}
-              </div>
-              {selectedTag && (
-                <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-                  当前筛选：{selectedTag}（共 {totalPosts} 篇）
-                  <button
-                    type="button"
-                    onClick={() => handleTagClick(selectedTag)}
-                    className="ml-2 rounded underline transition-apple hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2"
-                  >
-                    取消
-                  </button>
+          {activeTopTab === 0 ? (
+            <>
+              {/* 标签词云：正常参与滚动 */}
+              {tagCounts.length > 0 && (
+                <section className="mb-5 rounded-2xl border border-zinc-200 bg-white/60 px-4 py-5 shadow-sm transition-apple dark:border-zinc-800 dark:bg-zinc-900/40 [contain:layout_paint]">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {tagCounts.map(({ name, value }) => (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() => handleTagClick(name)}
+                        className={`rounded-full px-2.5 py-1 transition-apple focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-zinc-900 ${getSizeClass(value, maxTagCount)} ${
+                          selectedTag === name
+                            ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                            : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 hover:scale-105 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                        }`}
+                      >
+                        {name}
+                      </button>
+                    ))}
+                  </div>
+                  {selectedTag && (
+                    <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+                      当前筛选：{selectedTag}（共 {totalPosts} 篇）
+                      <button
+                        type="button"
+                        onClick={() => handleTagClick(selectedTag)}
+                        className="ml-2 rounded underline transition-apple hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2"
+                      >
+                        取消
+                      </button>
+                    </p>
+                  )}
+                </section>
+              )}
+
+              {/* 日记列表：流式滚动 */}
+              <section className="entries-page-fade-in space-y-4 pt-5 text-sm">
+                {loading && (
+                  <p className="px-3 text-xs text-zinc-500 dark:text-zinc-400">
+                    加载中…
+                  </p>
+                )}
+                {!loading && currentEntries.length === 0 && (
+                  <p className="px-3 text-xs text-zinc-500 dark:text-zinc-400">
+                    暂无文章
+                  </p>
+                )}
+                {!loading &&
+                  currentEntries.map((item) => (
+                    <EntryCard
+                      key={item.id}
+                      item={item}
+                      authorName={profile?.name ?? "DailyRhapsody"}
+                      avatarSrc={profile?.avatar ?? "/avatar.png"}
+                      canEdit={isAdminSession}
+                    />
+                  ))}
+                {hasMore && !loading && <div ref={sentinelRef} className="h-4" aria-hidden />}
+                {loadingMore && (
+                  <div className="flex justify-center py-6" role="status" aria-label="加载中">
+                    <svg
+                      className="h-6 w-6 animate-spin text-zinc-400 dark:text-zinc-500"
+                      viewBox="0 0 24 24"
+                      aria-hidden
+                    >
+                      <circle
+                        cx="12"
+                        cy="12"
+                        r="9"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeDasharray="32 24"
+                      />
+                    </svg>
+                  </div>
+                )}
+              </section>
+
+              {/* 彩蛋 */}
+              {totalPosts > 0 && !hasMore && (eggPullY > 0 || isRebounding) && (
+                <div className="pt-8 pb-10 text-center" role="status" aria-live="polite">
+                  <span className="text-sm text-zinc-500 dark:text-zinc-400">
+                    被你发现了 ✨
+                  </span>
+                </div>
+              )}
+              {totalPosts > 0 && !hasMore && (
+                <div className="h-[140px] shrink-0" aria-hidden />
+              )}
+            </>
+          ) : (
+            /* ── 画廊动态 ── */
+            <section className="border-t border-zinc-200 pt-2 dark:border-zinc-800">
+              {galleryLoading && galleryTimeline.length === 0 && (
+                <div className="space-y-6 px-4 py-8">
+                  {[1, 2, 3].map((k) => (
+                    <div key={k} className="animate-pulse space-y-3">
+                      <div className="h-3 w-24 rounded bg-zinc-200 dark:bg-zinc-700" />
+                      <div className="grid grid-cols-3 gap-1">
+                        <div className="aspect-square rounded bg-zinc-200 dark:bg-zinc-700" />
+                        <div className="aspect-square rounded bg-zinc-200 dark:bg-zinc-700" />
+                        <div className="aspect-square rounded bg-zinc-200 dark:bg-zinc-700" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!galleryLoading && galleryTimeline.length === 0 && (
+                <p className="px-4 py-16 text-center text-sm text-zinc-500 dark:text-zinc-400">
+                  暂无内容
                 </p>
               )}
+              {galleryTimeline.map((row) => {
+                const m = row.moment;
+                const sorted = [...m.media].sort((a, b) => a.sortOrder - b.sortOrder);
+                const urls = sorted.map((x) => x.url);
+
+                if (m.type === 2 && sorted[0]) {
+                  return (
+                    <article key={row.rowKey} className="border-b border-zinc-100 px-3 py-4 dark:border-zinc-800/50 sm:px-4">
+                      <p className="mb-2 text-[13px] leading-none text-zinc-400 dark:text-zinc-500">
+                        {formatMomentRelative(m.createdAt)}
+                      </p>
+                      <div className="overflow-hidden rounded bg-black">
+                        <video src={sorted[0].url} className="max-h-[min(70vh,520px)] w-full object-contain" controls playsInline preload="metadata" muted />
+                      </div>
+                    </article>
+                  );
+                }
+
+                if (sorted.length === 0) return null;
+                const n = sorted.length;
+                return (
+                  <article key={row.rowKey} className="border-b border-zinc-100 px-3 py-4 dark:border-zinc-800/50 sm:px-4">
+                    <p className="mb-2 text-[13px] leading-none text-zinc-400 dark:text-zinc-500">
+                      {formatMomentRelative(m.createdAt)}
+                    </p>
+                    <div className={`grid ${galleryGridClass(n)} ${n <= 1 ? "" : "gap-0.5"}`}>
+                      {sorted.map((media, idx) => (
+                        <button
+                          key={`${media.url}-${idx}`}
+                          type="button"
+                          className={`relative w-full overflow-hidden rounded bg-zinc-100 dark:bg-zinc-800 ${
+                            n === 1 ? "aspect-auto max-h-[min(72vh,640px)]" : "aspect-square"
+                          }`}
+                          onClick={() => setLightbox({ urls, i: idx, lbKey: `${row.rowKey}-${idx}` })}
+                        >
+                          <img
+                            src={media.thumbUrl || media.url}
+                            alt=""
+                            className={`absolute inset-0 h-full w-full ${n === 1 ? "object-contain" : "object-cover"}`}
+                            loading="lazy"
+                            decoding="async"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </article>
+                );
+              })}
+              {galleryHasMore && <div ref={gallerySentinelRef} className="h-8" aria-hidden />}
+              {galleryLoadingMore && (
+                <div className="flex justify-center py-6">
+                  <div className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600 dark:border-zinc-600 dark:border-t-zinc-300" />
+                </div>
+              )}
             </section>
-          )}
-
-          {/* 日记列表：流式滚动 */}
-          <section className="entries-page-fade-in space-y-4 border-t border-zinc-200 pt-5 text-sm dark:border-zinc-800">
-            {loading && (
-              <p className="px-3 text-xs text-zinc-500 dark:text-zinc-400">
-                加载中…
-              </p>
-            )}
-            {!loading && currentEntries.length === 0 && (
-              <p className="px-3 text-xs text-zinc-500 dark:text-zinc-400">
-                暂无文章
-              </p>
-            )}
-            {!loading &&
-              currentEntries.map((item) => (
-                <EntryCard
-                  key={item.id}
-                  item={item}
-                  authorName={profile?.name ?? "DailyRhapsody"}
-                  avatarSrc={profile?.avatar ?? "/avatar.png"}
-                  canEdit={isAdminSession}
-                />
-              ))}
-            {hasMore && !loading && <div ref={sentinelRef} className="h-4" aria-hidden />}
-            {loadingMore && (
-              <div className="flex justify-center py-6" role="status" aria-label="加载中">
-                <svg
-                  className="h-6 w-6 animate-spin text-zinc-400 dark:text-zinc-500"
-                  viewBox="0 0 24 24"
-                  aria-hidden
-                >
-                  <circle
-                    cx="12"
-                    cy="12"
-                    r="9"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeDasharray="32 24"
-                  />
-                </svg>
-              </div>
-            )}
-          </section>
-
-          {/* 彩蛋：仅当流式加载全部展示完毕（滑完所有博客）后，出现在最底部；仅文字，与正文平滑过渡 */}
-          {totalPosts > 0 && !hasMore && (eggPullY > 0 || isRebounding) && (
-            <div className="pt-8 pb-10 text-center" role="status" aria-live="polite">
-              <span className="text-sm text-zinc-500 dark:text-zinc-400">
-                被你发现了 ✨
-              </span>
-            </div>
-          )}
-          {/* 固定底部留白替代每帧 paddingBottom，避免回弹时整页反复 reflow */}
-          {totalPosts > 0 && !hasMore && (
-            <div className="h-[140px] shrink-0" aria-hidden />
           )}
           </div>
           </div>
         </main>
       </div>
+
+      <MomentLightbox
+        key={lightbox?.lbKey ?? "closed"}
+        open={lightbox != null}
+        urls={lightbox?.urls ?? []}
+        index={lightbox?.i ?? 0}
+        onClose={() => setLightbox(null)}
+      />
     </div>
   );
 }
