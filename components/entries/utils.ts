@@ -1,4 +1,5 @@
-import type { GalleryLegacyItem, PublicMoment } from "./types";
+import type { GalleryLegacyItem } from "@/hooks/useGalleryLegacy";
+import type { PublicMoment } from "./types";
 
 export const PAGE_SIZE = 30;
 export const MAX_SUMMARY_LINES = 5;

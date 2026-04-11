@@ -70,9 +70,6 @@ export default function EntriesPage() {
   const hasMore = items.length < total && total > 0;
   const maxTagCount = tagCounts[0]?.value ?? 1;
 
-  /* ── 两阶段收缩：virtualScroll 先吸收 header 收缩量再放行原生滚动 ── */
-  const TOTAL_ABSORB = HEADER_COLLAPSE_RANGE;
-
   useEffect(() => {
     hasMoreRef.current = hasMore;
     totalPostsRef.current = totalPosts;
@@ -253,14 +250,14 @@ export default function EntriesPage() {
 
       if (e.deltaY > 0) {
         // 向下滚
-        if (vs < TOTAL_ABSORB) {
+        if (vs < HEADER_COLLAPSE_RANGE) {
           e.preventDefault();
-          const next = Math.min(TOTAL_ABSORB, vs + e.deltaY);
+          const next = Math.min(HEADER_COLLAPSE_RANGE, vs + e.deltaY);
           virtualScrollRef.current = next;
           setVirtualScroll(next);
           // 如果恰好满了，将剩余 delta 传给原生滚动
-          if (next === TOTAL_ABSORB && vs < TOTAL_ABSORB) {
-            const remaining = e.deltaY - (TOTAL_ABSORB - vs);
+          if (next === HEADER_COLLAPSE_RANGE && vs < HEADER_COLLAPSE_RANGE) {
+            const remaining = e.deltaY - (HEADER_COLLAPSE_RANGE - vs);
             if (remaining > 0) window.scrollBy(0, remaining);
           }
         }
@@ -279,17 +276,10 @@ export default function EntriesPage() {
     }
 
     // 触摸拦截
-    let touchStartY = 0;
     let touchLastY = 0;
-    let touchIntercepting = false;
 
     function onTouchStart(e: TouchEvent) {
-      touchStartY = e.touches[0].clientY;
-      touchLastY = touchStartY;
-      const vs = virtualScrollRef.current;
-      const pageY = window.scrollY;
-      // 在顶部且 virtualScroll 未满时拦截
-      touchIntercepting = (vs < TOTAL_ABSORB && pageY <= 0) || (vs > 0 && pageY <= 0);
+      touchLastY = e.touches[0].clientY;
     }
 
     function onTouchMove(e: TouchEvent) {
@@ -300,22 +290,18 @@ export default function EntriesPage() {
       const vs = virtualScrollRef.current;
       const pageY = window.scrollY;
 
-      if (delta > 0 && vs < TOTAL_ABSORB) {
+      if (delta > 0 && vs < HEADER_COLLAPSE_RANGE) {
         // 下滚，吸收
         e.preventDefault();
-        const next = Math.min(TOTAL_ABSORB, vs + delta);
+        const next = Math.min(HEADER_COLLAPSE_RANGE, vs + delta);
         virtualScrollRef.current = next;
         setVirtualScroll(next);
-        touchIntercepting = true;
       } else if (delta < 0 && pageY <= 0 && vs > 0) {
         // 上滚，回退 virtualScroll
         e.preventDefault();
         const next = Math.max(0, vs + delta);
         virtualScrollRef.current = next;
         setVirtualScroll(next);
-        touchIntercepting = true;
-      } else {
-        touchIntercepting = false;
       }
     }
 
@@ -330,7 +316,7 @@ export default function EntriesPage() {
       document.removeEventListener("touchmove", onTouchMove);
       if (rafId) cancelAnimationFrame(rafId);
     };
-  }, [TOTAL_ABSORB]);
+  }, []);
 
   /* ── activeTopTab ref 同步 ── */
   useEffect(() => { activeTopTabRef.current = activeTopTab; }, [activeTopTab]);

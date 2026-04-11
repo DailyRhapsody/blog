@@ -33,13 +33,6 @@ export type PublicMoment = {
   media: PublicMedia[];
 };
 
-export type GalleryLegacyItem = {
-  id: number;
-  createdAt: string;
-  isPublic?: boolean;
-  images: string[];
-};
-
 export type GalleryTimelineRow = {
   rowKey: string;
   createdAt: string;
