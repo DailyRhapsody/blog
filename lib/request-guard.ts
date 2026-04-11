@@ -59,19 +59,50 @@ function isSuspiciousRequest(req: Request) {
   return false;
 }
 
-/** 校验 Origin 和 Referer，防止跨站抓取。 */
-export function checkOriginOrReferer(req: Request): boolean {
-  const origin = req.headers.get("origin");
-  const referer = req.headers.get("referer");
+/** 提取 host 头里的 hostname（去掉 port、首项），并附带可能的 x-forwarded-host。 */
+function expectedHostnames(req: Request): Set<string> {
+  const out = new Set<string>();
+  try {
+    out.add(new URL(req.url).hostname.toLowerCase());
+  } catch {}
   const host = req.headers.get("host");
-
-  if (origin && !origin.includes(host || "")) {
-    return false;
+  if (host) {
+    const h = host.split(",")[0]?.trim().split(":")[0]?.toLowerCase();
+    if (h) out.add(h);
   }
-  if (referer && !referer.includes(host || "")) {
-    // 允许空 Referer (虽然有些浏览器会剥离它，但纯 API 调用通常带 Referer 或 Origin)
-    // 但对于我们的站点内部 API 应该带上本站 Referer
-    return true; 
+  const fwd = req.headers.get("x-forwarded-host");
+  if (fwd) {
+    const h = fwd.split(",")[0]?.trim().split(":")[0]?.toLowerCase();
+    if (h) out.add(h);
+  }
+  return out;
+}
+
+function urlHostname(value: string): string | null {
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 校验 Origin / Referer 与本站 host 一致，防止跨站抓取与 CSRF 假冒来源。
+ * - 必须用精确 hostname 比较（避免 evil-host.com 子串绕过 host.com）
+ * - Origin 与 Referer 至少有一个存在时，必须同源；
+ *   两者都不存在时（如 nofetch / 部分隐私模式）放行，由 cookie + rate-limit 兜底。
+ */
+export function checkOriginOrReferer(req: Request): boolean {
+  const allowed = expectedHostnames(req);
+  const origin = req.headers.get("origin");
+  if (origin) {
+    const h = urlHostname(origin);
+    if (!h || !allowed.has(h)) return false;
+  }
+  const referer = req.headers.get("referer");
+  if (referer) {
+    const h = urlHostname(referer);
+    if (!h || !allowed.has(h)) return false;
   }
   return true;
 }

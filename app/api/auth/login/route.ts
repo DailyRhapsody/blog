@@ -1,8 +1,22 @@
 import { NextResponse } from "next/server";
+import { timingSafeEqual } from "node:crypto";
 import { createSessionCookie } from "@/lib/auth";
 import { guardApiRequest } from "@/lib/request-guard";
 import { rejectCrossSiteWrite } from "@/lib/same-origin";
 import { sleepLoginPenalty } from "@/lib/brute-delay";
+
+/** 常量时间字符串比较：两个 string 都先 utf8 编码到等长 buffer 再比较，
+ *  长度不同也保持执行一次同等长度的 timingSafeEqual，避免泄露长度信息。 */
+function safeStringEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a, "utf8");
+  const bb = Buffer.from(b, "utf8");
+  if (ab.length !== bb.length) {
+    // 用 ab 与 ab 比较，仅为消耗与正常路径相近的 CPU 时间
+    timingSafeEqual(ab, ab);
+    return false;
+  }
+  return timingSafeEqual(ab, bb);
+}
 
 export async function POST(req: Request) {
   const blocked = await guardApiRequest(req, {
@@ -29,7 +43,7 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
-  if (body.password !== password) {
+  if (typeof body.password !== "string" || !safeStringEqual(body.password, password)) {
     await sleepLoginPenalty();
     return NextResponse.json({ error: "Wrong password" }, { status: 401 });
   }

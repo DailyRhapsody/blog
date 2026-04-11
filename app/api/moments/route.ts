@@ -10,17 +10,48 @@ import {
   type MomentType,
 } from "@/lib/moments-store";
 
+/** 解析 SUPABASE_URL 拿到 hostname，用于校验 media URL 是否来自我们的 bucket。 */
+function getSupabaseHostname(): string | null {
+  const raw = process.env.SUPABASE_URL?.trim();
+  if (!raw) return null;
+  try {
+    return new URL(raw).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/** 仅允许本站相对路径（/uploads/...）或 Supabase 存储域名。
+ *  防止 admin 误存或 XSS 注入将 javascript: / 第三方域名写入数据库。 */
+function isAllowedMediaUrl(value: string, supabaseHost: string | null): boolean {
+  if (!value) return false;
+  // 本站相对路径上传
+  if (value.startsWith("/uploads/")) return true;
+  // Supabase 公共 URL：必须是 https 且 hostname 与配置一致
+  try {
+    const u = new URL(value);
+    if (u.protocol !== "https:") return false;
+    if (!supabaseHost) return false;
+    return u.hostname.toLowerCase() === supabaseHost;
+  } catch {
+    return false;
+  }
+}
+
 function parseMedia(raw: unknown): MomentMediaInput[] {
   if (!Array.isArray(raw)) return [];
+  const supabaseHost = getSupabaseHostname();
   const out: MomentMediaInput[] = [];
   for (const x of raw) {
     if (!x || typeof x !== "object") continue;
     const o = x as Record<string, unknown>;
     const url = typeof o.url === "string" ? o.url.trim() : "";
-    if (!url) continue;
+    if (!isAllowedMediaUrl(url, supabaseHost)) continue;
+    const thumbRaw = typeof o.thumbUrl === "string" ? o.thumbUrl.trim() : "";
+    const thumbUrl = thumbRaw && isAllowedMediaUrl(thumbRaw, supabaseHost) ? thumbRaw : null;
     out.push({
       url,
-      thumbUrl: typeof o.thumbUrl === "string" ? o.thumbUrl : null,
+      thumbUrl,
       mediaType: typeof o.mediaType === "string" ? o.mediaType : "image/jpeg",
       width: typeof o.width === "number" ? o.width : undefined,
       height: typeof o.height === "number" ? o.height : undefined,

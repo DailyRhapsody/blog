@@ -19,6 +19,11 @@ function sign(payload: string): string {
   return createHmac("sha256", getSecret()).update(payload).digest("hex");
 }
 
+/** 生产环境（HTTPS）下追加 Secure 标记，防止 cookie 在 HTTP 链路被嗅探。 */
+function secureFlag(): string {
+  return process.env.NODE_ENV === "production" ? "; Secure" : "";
+}
+
 export function createSessionCookie(remember?: boolean): string {
   const maxAge = remember ? MAX_AGE_REMEMBER : MAX_AGE_DEFAULT;
   const payload = JSON.stringify({
@@ -27,7 +32,7 @@ export function createSessionCookie(remember?: boolean): string {
   });
   const sig = sign(payload);
   const value = Buffer.from(payload).toString("base64url") + "." + sig;
-  return `${COOKIE_NAME}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
+  return `${COOKIE_NAME}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secureFlag()}`;
 }
 
 export async function isAdmin(): Promise<boolean> {
@@ -55,5 +60,5 @@ export async function isAdmin(): Promise<boolean> {
 }
 
 export function clearSessionCookie(): string {
-  return `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+  return `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureFlag()}`;
 }
