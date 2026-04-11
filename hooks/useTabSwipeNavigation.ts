@@ -2,8 +2,10 @@
 
 import { useEffect, type Dispatch, type SetStateAction } from "react";
 
-const WHEEL_DEBOUNCE_MS = 80;
-const WHEEL_TRIGGER_DELTA = 30;
+/** 一旦累计到这个 deltaX 就立刻切 tab —— 不再等 wheel 停下 */
+const WHEEL_TRIGGER_DELTA = 40;
+/** 切 tab 后，必须 wheel 静默这么久才允许下一次切，防止 trackpad 惯性把第二次切也带出去 */
+const WHEEL_IDLE_RESET_MS = 220;
 const TOUCH_AXIS_LOCK_DELTA = 10;
 const TOUCH_TRIGGER_DELTA = 50;
 
@@ -24,22 +26,34 @@ export function useTabSwipeNavigation(
 ) {
   useEffect(() => {
     let wheelAccum = 0;
-    let wheelTimer: ReturnType<typeof setTimeout> | null = null;
+    /** 已经触发过 setTab、正在等 wheel 停下来才允许下一次的「冷却」状态 */
+    let cooldown = false;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
 
     function onWheel(e: WheelEvent) {
       // 只关心横向意图：deltaX 的绝对值要大于 deltaY 才算横滚
-      if (Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 2) {
-        e.preventDefault();
-        wheelAccum += e.deltaX;
-        if (wheelTimer) clearTimeout(wheelTimer);
-        wheelTimer = setTimeout(() => {
-          if (Math.abs(wheelAccum) > WHEEL_TRIGGER_DELTA) {
-            setTab((prev) =>
-              wheelAccum > 0 ? Math.min(prev + 1, max) : Math.max(prev - 1, min),
-            );
-          }
-          wheelAccum = 0;
-        }, WHEEL_DEBOUNCE_MS);
+      if (!(Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 2)) return;
+      e.preventDefault();
+
+      // 不管在不在冷却，每来一个事件都把「静默判定」往后推
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        cooldown = false;
+        wheelAccum = 0;
+      }, WHEEL_IDLE_RESET_MS);
+
+      // 冷却期内不再累加：trackpad 惯性还在继续 emit deltaX，
+      // 之前的纯防抖写法等惯性结束才 fire，肉眼就是切 tab 慢半拍
+      if (cooldown) return;
+
+      wheelAccum += e.deltaX;
+      if (Math.abs(wheelAccum) >= WHEEL_TRIGGER_DELTA) {
+        const direction = wheelAccum > 0 ? 1 : -1;
+        setTab((prev) =>
+          direction > 0 ? Math.min(prev + 1, max) : Math.max(prev - 1, min),
+        );
+        cooldown = true;
+        wheelAccum = 0;
       }
     }
 
@@ -87,7 +101,7 @@ export function useTabSwipeNavigation(
       document.removeEventListener("touchmove", onTouchMove);
       document.removeEventListener("touchend", onTouchEnd);
       document.documentElement.style.overscrollBehaviorX = "";
-      if (wheelTimer) clearTimeout(wheelTimer);
+      if (idleTimer) clearTimeout(idleTimer);
     };
   }, [setTab, min, max]);
 }

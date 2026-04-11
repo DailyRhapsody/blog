@@ -62,8 +62,14 @@ function VisitorMap({ points }: { points: GeoPoint[] }) {
 
   // 加载 Leaflet CSS + JS（仅一次）
   useEffect(() => {
+    // 「读外部状态写回 React」的合法用法（CDN 脚本可能已被别处加载过），
+    // react-hooks/set-state-in-effect 启发式会误报，下面那行 setReady(true) 显式关掉
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if ((window as any).L) { setReady(true); return; }
+    if ((window as any).L) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setReady(true);
+      return;
+    }
 
     const link = document.createElement("link");
     link.rel = "stylesheet";

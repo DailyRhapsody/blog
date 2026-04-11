@@ -169,7 +169,9 @@ export async function guardApiRequest(
     );
   }
 
-  const allowed = await limitByIp(scope, ip, limit, `${windowMs} ms`);
+  // Duration 是 `${number} ms` 这种模板字面量类型；windowMs 是普通 number，
+  // 拼出来的 string 必须显式断言一下才能塞回去
+  const allowed = await limitByIp(scope, ip, limit, `${windowMs} ms` as `${number} ms`);
   if (!allowed) {
     await recordViolation(ip, `rate limit scope=${scope}`);
     return tooManyRequests(Date.now() + 60_000);

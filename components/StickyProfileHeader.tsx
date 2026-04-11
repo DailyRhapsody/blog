@@ -94,13 +94,17 @@ export default function StickyProfileHeader({
       void tryAutoplayBgm();
     };
 
-    // 等 <audio> ref 挂上后再播；缓冲就绪 canplay 再试；刷新时 pageshow 再试
+    // 等 <audio> ref 挂上后再播；缓冲就绪 canplay 再试；刷新时 pageshow 再试。
+    // 用 attachedAudioRef 记下「真正绑过 canplay 的那个 audio 元素」，cleanup 时
+    // 必须解绑同一个对象——不能直接读 audioRef.current，那时它可能已经换成 null 或新节点。
     let raf0 = 0;
     let raf1 = 0;
+    let attachedAudio: HTMLAudioElement | null = null;
     raf0 = requestAnimationFrame(() => {
       raf1 = requestAnimationFrame(() => {
         kick();
-        audioRef.current?.addEventListener("canplay", kick, { once: true });
+        attachedAudio = audioRef.current;
+        attachedAudio?.addEventListener("canplay", kick, { once: true });
       });
     });
 
@@ -113,7 +117,7 @@ export default function StickyProfileHeader({
       cancelAnimationFrame(raf0);
       cancelAnimationFrame(raf1);
       window.removeEventListener("pageshow", onPageShow);
-      audioRef.current?.removeEventListener("canplay", kick);
+      attachedAudio?.removeEventListener("canplay", kick);
     };
   }, [hasEntriesBgm, tryAutoplayBgm, entriesBgmSrc]);
 
