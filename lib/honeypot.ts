@@ -35,6 +35,17 @@ export async function isIpBlocked(ip: string): Promise<boolean> {
 }
 
 /**
+ * 解除指定 IP 的封禁 + 清空未达阈值的违规计数。
+ * 用于 admin 在自己或可信用户被误封时的手动救济。
+ */
+export async function unblockIp(ip: string): Promise<{ removed: number }> {
+  if (!redis) return { removed: 0 };
+  if (!ip || ip === "unknown") return { removed: 0 };
+  const removed = await redis.del(`${BLOCK_PREFIX}${ip}`, `${VIOL_PREFIX}${ip}`);
+  return { removed: typeof removed === "number" ? removed : 0 };
+}
+
+/**
  * 标记一个 seed nonce 为「已兑换」。返回 true 表示首次写入成功（可放行兑换），
  * false 表示该 nonce 之前已被使用过（重放攻击，必须拒绝）。
  *

@@ -121,7 +121,12 @@ export default async function proxy(req: NextRequest) {
   const isAdminReq = !!(adminCookie && verifyAdminSession(adminCookie));
 
   // 0. 黑名单 IP 检测
-  if (!isAdminReq && (await isIpBlocked(ip))) {
+  // /admin/login（GET/POST）与 /api/admin/unblock-ip 始终绕过 IP 黑名单，
+  // 否则管理员一旦被误封就无法从同一 IP 登陆自救（鸡生蛋）。爆破风险依然由
+  // 全局 burst/sustained 速率限制兜底，不会放大攻击面。
+  const isAdminRescue =
+    pathname === "/admin/login" || pathname === "/api/admin/unblock-ip";
+  if (!isAdminReq && !isAdminRescue && (await isIpBlocked(ip))) {
     return withAntiScrapeHeaders(
       NextResponse.json({ error: "您的 IP 由于异常请求已被暂时限制访问。" }, { status: 403 })
     );
