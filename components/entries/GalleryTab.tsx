@@ -1,10 +1,19 @@
 "use client";
 
 import { type RefObject } from "react";
-import { formatMomentRelative } from "@/lib/moment-relative";
 import { GalleryVideoCell } from "./GalleryVideoCell";
 import { galleryGridClass } from "./utils";
 import type { GalleryTimelineRow } from "./types";
+
+/** 把 ISO 字符串渲染成本地 YYYY-MM-DD（按本地时区，不含时分秒） */
+function formatMomentDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 export type GalleryLightboxOpen = {
   urls: string[];
@@ -28,7 +37,7 @@ export function GalleryTab({
   onOpenLightbox: (lb: GalleryLightboxOpen) => void;
 }) {
   return (
-    <section className="border-t border-zinc-200 pt-2 dark:border-zinc-800">
+    <section className="pt-2">
       {loading && timeline.length === 0 && (
         <div className="space-y-6 px-4 py-8">
           {[1, 2, 3].map((k) => (
@@ -60,7 +69,7 @@ export function GalleryTab({
               className="border-b border-zinc-100 px-3 py-4 dark:border-zinc-800/50 sm:px-4"
             >
               <p className="mb-2 text-[13px] leading-none text-zinc-400 dark:text-zinc-500">
-                {formatMomentRelative(m.createdAt)}
+                {formatMomentDate(m.createdAt)}
               </p>
               <div className="overflow-hidden rounded bg-black">
                 <GalleryVideoCell
@@ -80,7 +89,7 @@ export function GalleryTab({
             className="border-b border-zinc-100 px-3 py-4 dark:border-zinc-800/50 sm:px-4"
           >
             <p className="mb-2 text-[13px] leading-none text-zinc-400 dark:text-zinc-500">
-              {formatMomentRelative(m.createdAt)}
+              {formatMomentDate(m.createdAt)}
             </p>
             <div className={`grid ${galleryGridClass(n)} ${n <= 1 ? "" : "gap-0.5"}`}>
               {sorted.map((media, idx) => {

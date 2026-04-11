@@ -1,33 +1,44 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import RainbowBrushTrail from "@/components/RainbowBrushTrail";
 import StickyProfileHeader from "@/components/StickyProfileHeader";
 import { MomentLightbox } from "@/components/entries/MomentLightbox";
-import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { CalendarHeatmap } from "@/components/entries/CalendarHeatmap";
 import { EntryCard } from "@/components/entries/EntryCard";
 import { GalleryTab } from "@/components/entries/GalleryTab";
-import { getSizeClass, legacyToMoment, PAGE_SIZE } from "@/components/entries/utils";
-import type {
-  Diary,
-  GalleryTimelineRow,
-} from "@/components/entries/types";
+import { getSizeClass, legacyToMoment } from "@/components/entries/utils";
+import type { GalleryTimelineRow } from "@/components/entries/types";
 import { useProfile, type Profile } from "@/hooks/useProfile";
 import { useAdminSession } from "@/hooks/useAdminSession";
 import { useGalleryLegacy } from "@/hooks/useGalleryLegacy";
 import { useGalleryMoments } from "@/hooks/useGalleryMoments";
 import { useTabSwipeNavigation } from "@/hooks/useTabSwipeNavigation";
+import { useEntries } from "@/hooks/useEntries";
+import { useEggPullToRefresh } from "@/hooks/useEggPullToRefresh";
+
 export default function EntriesPageClient({
   initialProfile,
 }: {
   initialProfile: Profile | null;
 }) {
-  const [items, setItems] = useState<Diary[]>([]);
-  const [total, setTotal] = useState(0);
-  const [tagCounts, setTagCounts] = useState<{ name: string; value: number }[]>([]);
-  const [datesFromApi, setDatesFromApi] = useState<string[]>([]);
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const {
+    items,
+    total,
+    tagCounts,
+    loading,
+    loadingMore,
+    hasMore,
+    maxTagCount,
+    datesWithPosts,
+    thisMonthPostCount,
+    sentinelRef,
+  } = useEntries(selectedTag);
+  const totalPosts = total;
+  const currentEntries = items;
+
   const { items: galleryLegacy } = useGalleryLegacy();
   const [activeTopTab, setActiveTopTab] = useState(0); // 0=博客, 1=画廊
   const {
@@ -38,43 +49,13 @@ export default function EntriesPageClient({
     sentinelRef: gallerySentinelRef,
   } = useGalleryMoments({ active: activeTopTab === 1 });
   const [lightbox, setLightbox] = useState<{ urls: string[]; i: number; lbKey: string } | null>(null);
-  const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const profile = useProfile(initialProfile);
   const { isAdmin: isAdminSession } = useAdminSession();
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [entriesFlipped, setEntriesFlipped] = useState(false);
   const [, setScrollYPos] = useState(0);
-  const activeTopTabRef = useRef(0);
-  const [eggPullY, setEggPullY] = useState(0);
-  const [isRebounding, setIsRebounding] = useState(false);
-  const sentinelRef = useRef<HTMLDivElement>(null);
+  /** 彩蛋只有在「最后一页且已有内容」时才允许触发 */
+  const { eggPullY, isRebounding } = useEggPullToRefresh(!hasMore && totalPosts > 0);
   const contentWrapperRef = useRef<HTMLDivElement>(null);
-  const eggPullAccumRef = useRef(0);
-  const eggReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const touchLastYRef = useRef(0);
-  const hasMoreRef = useRef(true);
-  const totalPostsRef = useRef(0);
-  /** 防止无限滚动与 hash 深链同时触发同一 offset 的重复 append */
-  const listAppendInFlightRef = useRef(false);
-
-  const datesWithPosts = useMemo(() => new Set(datesFromApi), [datesFromApi]);
-  const thisMonthPostCount = useMemo(() => {
-    const now = new Date();
-    const prefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    let count = 0;
-    datesWithPosts.forEach((d) => { if (d.startsWith(prefix)) count++; });
-    return count;
-  }, [datesWithPosts]);
-  const totalPosts = total;
-  const currentEntries = items;
-  const hasMore = items.length < total && total > 0;
-  const maxTagCount = tagCounts[0]?.value ?? 1;
-
-  useEffect(() => {
-    hasMoreRef.current = hasMore;
-    totalPostsRef.current = totalPosts;
-  }, [hasMore, totalPosts]);
 
   const galleryTimeline = useMemo(() => {
     const legacyVisible = galleryLegacy.filter((g) => g?.images?.length && (isAdminSession || g.isPublic !== false));
@@ -120,83 +101,17 @@ export default function EntriesPageClient({
     };
   }, []);
 
-  /* ── 读取 ?tab=gallery 初始化顶部 tab，让封面 Gallery 链接能直接落到画廊卡上 ── */
+  /* ── 读取 ?tab=gallery 初始化顶部 tab，让封面 Gallery 链接能直接落到画廊卡上。
+       这是「读取一次外部 URL 状态、写回 React 状态」的合法用法，
+       react-hooks/set-state-in-effect 的启发式会误报，这里显式关掉。 */
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("tab") === "gallery") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveTopTab(1);
-      activeTopTabRef.current = 1;
     }
   }, []);
-
-  const loadPage = useCallback(
-    (offset: number, append: boolean, tag: string | null) => {
-      const params = new URLSearchParams({
-        limit: String(PAGE_SIZE),
-        offset: String(offset),
-      });
-      if (tag) params.set("tag", tag);
-      return fetchWithTimeout(`/api/diaries?${params}`)
-        .then((res) => {
-          if (!res.ok) throw new Error(String(res.status));
-          return res.json();
-        })
-        .then((data: { items?: Diary[]; total?: number; tagCounts?: { name: string; value: number }[]; dates?: string[] }) => {
-          const list = Array.isArray(data.items) ? data.items : [];
-          if (append) setItems((prev) => [...prev, ...list]);
-          else setItems(list);
-          if (typeof data.total === "number") setTotal(data.total);
-          if (Array.isArray(data.tagCounts)) setTagCounts(data.tagCounts);
-          if (Array.isArray(data.dates)) setDatesFromApi(data.dates);
-        });
-    },
-    []
-  );
-
-  useEffect(() => {
-    loadPage(0, false, selectedTag)
-      .catch(() => {
-        setItems([]);
-        setTotal(0);
-      })
-      .finally(() => setLoading(false));
-  }, [selectedTag, loadPage]);
-
-  useEffect(() => {
-    if (loading || typeof window === "undefined") return;
-    const anchor = window.location.hash.replace(/^#/, "");
-    if (!anchor.startsWith("entry-")) return;
-    const el = document.getElementById(anchor);
-    if (el) {
-      requestAnimationFrame(() => {
-        el.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      });
-      return;
-    }
-    const idNum = Number(anchor.slice("entry-".length));
-    if (!Number.isFinite(idNum)) return;
-    const inList = items.some((d) => d.id === idNum);
-    if (inList) {
-      requestAnimationFrame(() => {
-        document.getElementById(anchor)?.scrollIntoView({
-          behavior: "smooth",
-          block: "nearest",
-        });
-      });
-      return;
-    }
-    if (total > 0 && items.length >= total) return;
-    if (!hasMore || loadingMore || listAppendInFlightRef.current) return;
-    listAppendInFlightRef.current = true;
-    setLoadingMore(true);
-    loadPage(items.length, true, selectedTag)
-      .catch(() => {})
-      .finally(() => {
-        listAppendInFlightRef.current = false;
-        setLoadingMore(false);
-      });
-  }, [loading, items, total, hasMore, loadingMore, selectedTag, loadPage]);
 
   useEffect(() => {
     const t = setTimeout(() => setEntriesFlipped(true), 80);
@@ -221,144 +136,10 @@ export default function EntriesPageClient({
     };
   }, []);
 
-  /* ── activeTopTab ref 同步 ── */
-  useEffect(() => { activeTopTabRef.current = activeTopTab; }, [activeTopTab]);
-
   /* ── 横向滚轮 / 触屏左右滑动切 tab + 屏蔽浏览器自带的左右回退 ── */
   useTabSwipeNavigation(setActiveTopTab, { min: 0, max: 1 });
 
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el || !hasMore || loading) return;
-    const obs = new IntersectionObserver(
-      (entries) => {
-        if (
-          !entries[0]?.isIntersecting ||
-          loadingMore ||
-          listAppendInFlightRef.current
-        )
-          return;
-        listAppendInFlightRef.current = true;
-        setLoadingMore(true);
-        const offset = items.length;
-        loadPage(offset, true, selectedTag)
-          .catch(() => {})
-          .finally(() => {
-            listAppendInFlightRef.current = false;
-            setLoadingMore(false);
-          });
-      },
-      { rootMargin: "200px", threshold: 0 }
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, [hasMore, loading, loadingMore, items.length, selectedTag, loadPage]);
-
-  useEffect(() => {
-    const MAX_EGG_PULL = 120;
-    const WHEEL_RELEASE_MS = 100;
-    let rafId = 0;
-
-    const isAtBottom = () => {
-      const scrollTop = window.scrollY ?? document.documentElement.scrollTop;
-      const scrollHeight = Math.max(
-        document.body.scrollHeight,
-        document.documentElement.scrollHeight
-      );
-      return scrollTop + window.innerHeight >= scrollHeight - 80;
-    };
-
-    const hideEgg = () => {
-      if (eggReleaseTimerRef.current) {
-        clearTimeout(eggReleaseTimerRef.current);
-        eggReleaseTimerRef.current = null;
-      }
-      eggPullAccumRef.current = 0;
-      setIsRebounding(true);
-      setEggPullY(0);
-      eggReleaseTimerRef.current = setTimeout(() => {
-        setIsRebounding(false);
-        eggReleaseTimerRef.current = null;
-      }, 400);
-    };
-
-    const flushPullY = () => {
-      rafId = 0;
-      setEggPullY(eggPullAccumRef.current);
-    };
-
-    const onWheel = (e: WheelEvent) => {
-      if (hasMoreRef.current) return;
-      if (totalPostsRef.current === 0) return;
-      if (!isAtBottom()) return;
-      if (e.deltaY === 0) return;
-
-      // 仅在底部「继续往下滚」时累计彩蛋；向上滚用 deltaY<0，之前误用 abs 会把上滑也算成拉力
-      if (e.deltaY < 0) {
-        if (eggReleaseTimerRef.current) {
-          clearTimeout(eggReleaseTimerRef.current);
-          eggReleaseTimerRef.current = null;
-        }
-        eggPullAccumRef.current = 0;
-        setEggPullY(0);
-        setIsRebounding(false);
-        return;
-      }
-
-      eggPullAccumRef.current = Math.min(
-        MAX_EGG_PULL,
-        eggPullAccumRef.current + e.deltaY
-      );
-      if (!rafId) rafId = requestAnimationFrame(flushPullY);
-      if (eggReleaseTimerRef.current) clearTimeout(eggReleaseTimerRef.current);
-      eggReleaseTimerRef.current = setTimeout(hideEgg, WHEEL_RELEASE_MS);
-    };
-
-    const onTouchStart = () => {
-      touchLastYRef.current = 0;
-    };
-    const onTouchMove = (e: TouchEvent) => {
-      if (hasMoreRef.current) return;
-      if (totalPostsRef.current === 0) return;
-      if (!isAtBottom()) return;
-      const y = e.touches[0]?.clientY ?? 0;
-      if (touchLastYRef.current === 0) touchLastYRef.current = y;
-      const dy = y - touchLastYRef.current;
-      touchLastYRef.current = y;
-      if (dy < 0) {
-        eggPullAccumRef.current = 0;
-        setEggPullY(0);
-        setIsRebounding(false);
-        return;
-      }
-      if (dy > 0) {
-        eggPullAccumRef.current = Math.min(
-          MAX_EGG_PULL,
-          eggPullAccumRef.current + dy
-        );
-        if (!rafId) rafId = requestAnimationFrame(flushPullY);
-      }
-    };
-    const onTouchEnd = () => {
-      hideEgg();
-    };
-
-    document.addEventListener("wheel", onWheel, { passive: true, capture: true });
-    window.addEventListener("touchstart", onTouchStart, { passive: true });
-    window.addEventListener("touchmove", onTouchMove, { passive: true });
-    window.addEventListener("touchend", onTouchEnd, { passive: true });
-    return () => {
-      document.removeEventListener("wheel", onWheel, true);
-      window.removeEventListener("touchstart", onTouchStart);
-      window.removeEventListener("touchmove", onTouchMove);
-      window.removeEventListener("touchend", onTouchEnd);
-      if (rafId) cancelAnimationFrame(rafId);
-      if (eggReleaseTimerRef.current) clearTimeout(eggReleaseTimerRef.current);
-    };
-  }, []);
-
   const handleTagClick = (tag: string) => {
-    setLoading(true);
     setSelectedTag((prev) => (prev === tag ? null : tag));
   };
 
