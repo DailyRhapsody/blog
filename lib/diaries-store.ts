@@ -1,6 +1,11 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { Pool } from "pg";
+import {
+  USE_DATABASE,
+  assertWritableStorage,
+  ensureSchemaOnce,
+  getPool,
+} from "./db";
 
 export type Diary = {
   id: number;
@@ -19,87 +24,36 @@ export type Diary = {
 
 const DATA_DIR = join(process.cwd(), "data");
 const DATA_FILE = join(DATA_DIR, "diaries.json");
-const DATABASE_URL = process.env.DATABASE_URL?.trim();
-const USE_DATABASE = Boolean(DATABASE_URL);
-
-let pool: Pool | null = null;
-let schemaReady: Promise<void> | null = null;
-
-function isLocalDbUrl(url: string): boolean {
-  return (
-    url.includes("localhost") ||
-    url.includes("127.0.0.1") ||
-    url.includes("@db:") ||
-    url.includes("@postgres:")
-  );
-}
-
-function getPool(): Pool {
-  if (!DATABASE_URL) {
-    throw new Error("DATABASE_URL is required for PostgreSQL storage.");
-  }
-  if (!pool) {
-    const ssl =
-      process.env.PGSSLMODE === "disable" || isLocalDbUrl(DATABASE_URL)
-        ? undefined
-        : { rejectUnauthorized: false as const };
-    pool = new Pool({
-      connectionString: DATABASE_URL,
-      ssl,
-      // 显式配置上限与超时，避免 serverless 并发场景连接耗尽 / 长事务卡死
-      max: 10,
-      idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 8_000,
-      statement_timeout: 15_000,
-    });
-  }
-  return pool;
-}
 
 async function ensureSchema(): Promise<void> {
-  if (!USE_DATABASE) return;
-  if (!schemaReady) {
-    schemaReady = (async () => {
-      const client = await getPool().connect();
-      try {
-        await client.query(`
-          CREATE TABLE IF NOT EXISTS diaries (
-            id BIGINT PRIMARY KEY,
-            date TEXT NOT NULL,
-            published_at TIMESTAMPTZ NULL,
-            pinned BOOLEAN NOT NULL DEFAULT FALSE,
-            is_public BOOLEAN NOT NULL DEFAULT TRUE,
-            summary TEXT NOT NULL DEFAULT '',
-            location TEXT NULL,
-            tags JSONB NOT NULL DEFAULT '[]'::jsonb,
-            images JSONB NOT NULL DEFAULT '[]'::jsonb,
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-          );
-        `);
-        await client.query(`
-          ALTER TABLE diaries
-          ADD COLUMN IF NOT EXISTS location TEXT NULL;
-        `);
-        await client.query(`
-          ALTER TABLE diaries
-          ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT TRUE;
-        `);
-        await client.query(`
-          CREATE INDEX IF NOT EXISTS idx_diaries_sort
-          ON diaries (pinned DESC, published_at DESC, date DESC);
-        `);
-      } finally {
-        client.release();
-      }
-    })();
-  }
-  try {
-    await schemaReady;
-  } catch (error) {
-    // Allow next request to retry schema initialization after a failed attempt.
-    schemaReady = null;
-    throw error;
-  }
+  await ensureSchemaOnce("diaries", async (client) => {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS diaries (
+        id BIGINT PRIMARY KEY,
+        date TEXT NOT NULL,
+        published_at TIMESTAMPTZ NULL,
+        pinned BOOLEAN NOT NULL DEFAULT FALSE,
+        is_public BOOLEAN NOT NULL DEFAULT TRUE,
+        summary TEXT NOT NULL DEFAULT '',
+        location TEXT NULL,
+        tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+        images JSONB NOT NULL DEFAULT '[]'::jsonb,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      ALTER TABLE diaries
+      ADD COLUMN IF NOT EXISTS location TEXT NULL;
+    `);
+    await client.query(`
+      ALTER TABLE diaries
+      ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT TRUE;
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_diaries_sort
+      ON diaries (pinned DESC, published_at DESC, date DESC);
+    `);
+  });
 }
 
 function normalizeStringArray(value: unknown): string[] {
@@ -137,14 +91,6 @@ function mapRowToDiary(row: {
   };
 }
 
-function assertWritableStorageMode(): void {
-  if (!USE_DATABASE && process.env.NODE_ENV === "production") {
-    throw new Error(
-      "DATABASE_URL is required in production. File storage is not writable in serverless environments."
-    );
-  }
-}
-
 async function readFromFile(): Promise<Diary[] | null> {
   try {
     const raw = await readFile(DATA_FILE, "utf8");
@@ -161,7 +107,7 @@ async function writeToFile(diaries: Diary[]): Promise<void> {
 }
 
 export async function getDiaries(fallback: Diary[]): Promise<Diary[]> {
-  assertWritableStorageMode();
+  assertWritableStorage();
   if (USE_DATABASE) {
     await ensureSchema();
     const res = await getPool().query(
@@ -178,7 +124,7 @@ export async function getDiaries(fallback: Diary[]): Promise<Diary[]> {
 }
 
 export async function saveDiaries(diaries: Diary[]): Promise<void> {
-  assertWritableStorageMode();
+  assertWritableStorage();
   if (USE_DATABASE) {
     await ensureSchema();
     const client = await getPool().connect();
@@ -237,7 +183,7 @@ export async function saveDiaries(diaries: Diary[]): Promise<void> {
 }
 
 export async function hasStoredDiaries(): Promise<boolean> {
-  assertWritableStorageMode();
+  assertWritableStorage();
   if (USE_DATABASE) {
     await ensureSchema();
     const res = await getPool().query(`SELECT 1 FROM diaries LIMIT 1`);

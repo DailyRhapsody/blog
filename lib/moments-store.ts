@@ -1,6 +1,12 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { Pool, type PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
+import {
+  USE_DATABASE,
+  assertWritableStorage,
+  ensureSchemaOnce,
+  getPool,
+} from "./db";
 
 /** 1=图片动态 2=视频动态 */
 export type MomentType = 1 | 2;
@@ -36,91 +42,38 @@ export type MomentRow = {
 
 const DATA_DIR = join(process.cwd(), "data");
 const DATA_FILE = join(DATA_DIR, "moments.json");
-const DATABASE_URL = process.env.DATABASE_URL?.trim();
-const USE_DATABASE = Boolean(DATABASE_URL);
-
-let pool: Pool | null = null;
-let schemaReady: Promise<void> | null = null;
-
-function isLocalDbUrl(url: string): boolean {
-  return (
-    url.includes("localhost") ||
-    url.includes("127.0.0.1") ||
-    url.includes("@db:") ||
-    url.includes("@postgres:")
-  );
-}
-
-function getPool(): Pool {
-  if (!DATABASE_URL) {
-    throw new Error("DATABASE_URL is required for PostgreSQL storage.");
-  }
-  if (!pool) {
-    const ssl =
-      process.env.PGSSLMODE === "disable" || isLocalDbUrl(DATABASE_URL)
-        ? undefined
-        : { rejectUnauthorized: false as const };
-    pool = new Pool({
-      connectionString: DATABASE_URL,
-      ssl,
-      // 显式配置上限与超时，避免 serverless 并发场景连接耗尽 / 长事务卡死
-      max: 10,
-      idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 8_000,
-      statement_timeout: 15_000,
-    });
-  }
-  return pool;
-}
 
 async function ensureSchema(): Promise<void> {
-  if (!USE_DATABASE) return;
-  if (!schemaReady) {
-    schemaReady = (async () => {
-      const client = await getPool().connect();
-      try {
-        await client.query(`
-          CREATE TABLE IF NOT EXISTS moments (
-            id BIGSERIAL PRIMARY KEY,
-            type SMALLINT NOT NULL CHECK (type IN (1, 2)),
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            status SMALLINT NOT NULL DEFAULT 1 CHECK (status IN (0, 1))
-          );
-        `);
-        await client.query(`
-          CREATE TABLE IF NOT EXISTS moment_media (
-            id BIGSERIAL PRIMARY KEY,
-            moment_id BIGINT NOT NULL REFERENCES moments(id) ON DELETE CASCADE,
-            url TEXT NOT NULL,
-            thumb_url TEXT,
-            media_type TEXT NOT NULL,
-            width INT NOT NULL DEFAULT 0,
-            height INT NOT NULL DEFAULT 0,
-            duration INT NOT NULL DEFAULT 0,
-            sort_order INT NOT NULL DEFAULT 0
-          );
-        `);
-        await client.query(
-          `CREATE INDEX IF NOT EXISTS idx_moments_created_at ON moments (created_at DESC) WHERE status = 1;`
-        );
-        await client.query(
-          `CREATE INDEX IF NOT EXISTS idx_moment_media_moment_id ON moment_media (moment_id);`
-        );
-      } finally {
-        client.release();
-      }
-    })();
-  }
-  await schemaReady;
-}
-
-function assertWritableStorageMode(): void {
-  if (!USE_DATABASE && process.env.NODE_ENV === "production") {
-    throw new Error(
-      "DATABASE_URL is required in production. File storage is not writable on serverless."
+  await ensureSchemaOnce("moments", async (client) => {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS moments (
+        id BIGSERIAL PRIMARY KEY,
+        type SMALLINT NOT NULL CHECK (type IN (1, 2)),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        status SMALLINT NOT NULL DEFAULT 1 CHECK (status IN (0, 1))
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS moment_media (
+        id BIGSERIAL PRIMARY KEY,
+        moment_id BIGINT NOT NULL REFERENCES moments(id) ON DELETE CASCADE,
+        url TEXT NOT NULL,
+        thumb_url TEXT,
+        media_type TEXT NOT NULL,
+        width INT NOT NULL DEFAULT 0,
+        height INT NOT NULL DEFAULT 0,
+        duration INT NOT NULL DEFAULT 0,
+        sort_order INT NOT NULL DEFAULT 0
+      );
+    `);
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_moments_created_at ON moments (created_at DESC) WHERE status = 1;`
     );
-  }
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_moment_media_moment_id ON moment_media (moment_id);`
+    );
+  });
 }
 
 function normalizeMediaInput(m: MomentMediaInput, order: number): MomentMediaRow {
@@ -228,7 +181,7 @@ export async function listMoments(options: {
   /** 后台：包含已删除 */
   includeDeleted?: boolean;
 }): Promise<{ items: MomentRow[]; total: number }> {
-  assertWritableStorageMode();
+  assertWritableStorage();
   const limit = Math.min(100, Math.max(1, options.limit));
   const offset = Math.max(0, options.offset);
 
@@ -266,7 +219,7 @@ export async function getMomentById(
   id: number,
   includeDeleted?: boolean
 ): Promise<MomentRow | null> {
-  assertWritableStorageMode();
+  assertWritableStorage();
   if (USE_DATABASE) {
     await ensureSchema();
     const pool = getPool();
@@ -291,7 +244,7 @@ export async function createMoment(input: {
   type: MomentType;
   media: MomentMediaInput[];
 }): Promise<MomentRow> {
-  assertWritableStorageMode();
+  assertWritableStorage();
   const mediaRows = input.media.map((m, i) => normalizeMediaInput(m, i));
   const err = validateMomentPayload(input.type, mediaRows);
   if (err) throw new Error(err);
@@ -362,7 +315,7 @@ export async function updateMoment(
   id: number,
   input: { type: MomentType; media: MomentMediaInput[] }
 ): Promise<MomentRow | null> {
-  assertWritableStorageMode();
+  assertWritableStorage();
   const mediaRows = input.media.map((m, i) => normalizeMediaInput(m, i));
   const err = validateMomentPayload(input.type, mediaRows);
   if (err) throw new Error(err);
@@ -426,7 +379,7 @@ export async function updateMoment(
 }
 
 export async function softDeleteMoment(id: number): Promise<boolean> {
-  assertWritableStorageMode();
+  assertWritableStorage();
   if (USE_DATABASE) {
     await ensureSchema();
     const res = await getPool().query(

@@ -1,6 +1,11 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { Pool } from "pg";
+import {
+  USE_DATABASE,
+  assertWritableStorage,
+  ensureSchemaOnce,
+  getPool,
+} from "./db";
 
 export type GalleryItem = {
   id: number;
@@ -12,78 +17,26 @@ export type GalleryItem = {
 
 const DATA_DIR = join(process.cwd(), "data");
 const DATA_FILE = join(DATA_DIR, "gallery.json");
-const DATABASE_URL = process.env.DATABASE_URL?.trim();
-const USE_DATABASE = Boolean(DATABASE_URL);
-
-let pool: Pool | null = null;
-let schemaReady: Promise<void> | null = null;
-
-function isLocalDbUrl(url: string): boolean {
-  return (
-    url.includes("localhost") ||
-    url.includes("127.0.0.1") ||
-    url.includes("@db:") ||
-    url.includes("@postgres:")
-  );
-}
-
-function getPool(): Pool {
-  if (!DATABASE_URL) {
-    throw new Error("DATABASE_URL is required for PostgreSQL storage.");
-  }
-  if (!pool) {
-    const ssl =
-      process.env.PGSSLMODE === "disable" || isLocalDbUrl(DATABASE_URL)
-        ? undefined
-        : { rejectUnauthorized: false as const };
-    pool = new Pool({
-      connectionString: DATABASE_URL,
-      ssl,
-      max: 10,
-      idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 8_000,
-      statement_timeout: 15_000,
-    });
-  }
-  return pool;
-}
 
 async function ensureSchema(): Promise<void> {
-  if (!USE_DATABASE) return;
-  if (!schemaReady) {
-    schemaReady = (async () => {
-      const client = await getPool().connect();
-      try {
-        await client.query(`
-          CREATE TABLE IF NOT EXISTS gallery_items (
-            id BIGSERIAL PRIMARY KEY,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            is_public BOOLEAN NOT NULL DEFAULT TRUE,
-            images JSONB NOT NULL DEFAULT '[]'::jsonb
-          );
-        `);
-        await client.query(`
-          ALTER TABLE gallery_items
-          ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT TRUE;
-        `);
-        await client.query(`
-          CREATE INDEX IF NOT EXISTS idx_gallery_items_created_at
-          ON gallery_items (created_at DESC);
-        `);
-      } finally {
-        client.release();
-      }
-    })();
-  }
-  await schemaReady;
-}
-
-function assertWritableStorageMode(): void {
-  if (!USE_DATABASE && process.env.NODE_ENV === "production") {
-    throw new Error(
-      "DATABASE_URL is required in production. File storage is not writable in serverless environments."
-    );
-  }
+  await ensureSchemaOnce("gallery_items", async (client) => {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS gallery_items (
+        id BIGSERIAL PRIMARY KEY,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        is_public BOOLEAN NOT NULL DEFAULT TRUE,
+        images JSONB NOT NULL DEFAULT '[]'::jsonb
+      );
+    `);
+    await client.query(`
+      ALTER TABLE gallery_items
+      ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT TRUE;
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_gallery_items_created_at
+      ON gallery_items (created_at DESC);
+    `);
+  });
 }
 
 function normalizeStringArray(value: unknown): string[] {
@@ -107,7 +60,7 @@ async function writeToFile(items: GalleryItem[]): Promise<void> {
 }
 
 export async function getGalleryItems(): Promise<GalleryItem[]> {
-  assertWritableStorageMode();
+  assertWritableStorage();
   if (USE_DATABASE) {
     await ensureSchema();
     const res = await getPool().query(
@@ -135,7 +88,7 @@ export async function addGalleryItem(input: {
   createdAt?: string;
   isPublic?: boolean;
 }): Promise<GalleryItem> {
-  assertWritableStorageMode();
+  assertWritableStorage();
   const createdAt = input.createdAt
     ? new Date(input.createdAt).toISOString()
     : new Date().toISOString();

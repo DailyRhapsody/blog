@@ -1,99 +1,54 @@
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { Pool } from "pg";
+import {
+  USE_DATABASE,
+  assertWritableStorage,
+  ensureSchemaOnce,
+  getPool,
+} from "./db";
 
 const DATA_DIR = join(process.cwd(), "data");
 const JSONL_FILE = join(DATA_DIR, "analytics-visits.jsonl");
 
-const DATABASE_URL = process.env.DATABASE_URL?.trim();
-const USE_DATABASE = Boolean(DATABASE_URL);
-
-let pool: Pool | null = null;
-let schemaReady: Promise<void> | null = null;
-
-function isLocalDbUrl(url: string): boolean {
-  return (
-    url.includes("localhost") ||
-    url.includes("127.0.0.1") ||
-    url.includes("@db:") ||
-    url.includes("@postgres:")
-  );
-}
-
-function getPool(): Pool {
-  if (!DATABASE_URL) {
-    throw new Error("DATABASE_URL is required for PostgreSQL analytics storage.");
-  }
-  if (!pool) {
-    const ssl =
-      process.env.PGSSLMODE === "disable" || isLocalDbUrl(DATABASE_URL)
-        ? undefined
-        : { rejectUnauthorized: false as const };
-    pool = new Pool({
-      connectionString: DATABASE_URL,
-      ssl,
-      max: 10,
-      idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 8_000,
-      statement_timeout: 15_000,
-    });
-  }
-  return pool;
-}
+const ANALYTICS_STORAGE_ERROR =
+  "DATABASE_URL is required in production for visitor analytics (file mode is not supported on serverless).";
 
 async function ensureSchema(): Promise<void> {
-  if (!USE_DATABASE) return;
-  if (!schemaReady) {
-    schemaReady = (async () => {
-      const client = await getPool().connect();
-      try {
-        await client.query(`
-          CREATE TABLE IF NOT EXISTS visit_events (
-            id BIGSERIAL PRIMARY KEY,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            ip TEXT,
-            country TEXT,
-            region TEXT,
-            city TEXT,
-            latitude DOUBLE PRECISION,
-            longitude DOUBLE PRECISION,
-            path TEXT NOT NULL,
-            query_string TEXT,
-            referrer TEXT,
-            user_agent TEXT,
-            accept_language TEXT,
-            utm_source TEXT,
-            utm_medium TEXT,
-            utm_campaign TEXT,
-            visitor_id TEXT,
-            is_bot BOOLEAN NOT NULL DEFAULT FALSE,
-            screen_width INT,
-            screen_height INT
-          );
-        `);
-        await client.query(
-          `CREATE INDEX IF NOT EXISTS visit_events_created_at_idx ON visit_events (created_at DESC);`
-        );
-        await client.query(`CREATE INDEX IF NOT EXISTS visit_events_path_idx ON visit_events (path);`);
-        await client.query(
-          `CREATE INDEX IF NOT EXISTS visit_events_country_idx ON visit_events (country);`
-        );
-        await client.query(`CREATE INDEX IF NOT EXISTS visit_events_ip_idx ON visit_events (ip);`);
-      } finally {
-        client.release();
-      }
-    })();
-  }
-  await schemaReady;
-}
-
-function assertWritableStorageMode(): void {
-  if (!USE_DATABASE && process.env.NODE_ENV === "production") {
-    throw new Error(
-      "DATABASE_URL is required in production for visitor analytics (file mode is not supported on serverless)."
+  await ensureSchemaOnce("visit_events", async (client) => {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS visit_events (
+        id BIGSERIAL PRIMARY KEY,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        ip TEXT,
+        country TEXT,
+        region TEXT,
+        city TEXT,
+        latitude DOUBLE PRECISION,
+        longitude DOUBLE PRECISION,
+        path TEXT NOT NULL,
+        query_string TEXT,
+        referrer TEXT,
+        user_agent TEXT,
+        accept_language TEXT,
+        utm_source TEXT,
+        utm_medium TEXT,
+        utm_campaign TEXT,
+        visitor_id TEXT,
+        is_bot BOOLEAN NOT NULL DEFAULT FALSE,
+        screen_width INT,
+        screen_height INT
+      );
+    `);
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS visit_events_created_at_idx ON visit_events (created_at DESC);`
     );
-  }
+    await client.query(`CREATE INDEX IF NOT EXISTS visit_events_path_idx ON visit_events (path);`);
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS visit_events_country_idx ON visit_events (country);`
+    );
+    await client.query(`CREATE INDEX IF NOT EXISTS visit_events_ip_idx ON visit_events (ip);`);
+  });
 }
 
 export type VisitInput = {
@@ -175,7 +130,7 @@ function mapPgRow(row: Record<string, unknown>): VisitRow {
 }
 
 export async function recordVisit(input: VisitInput): Promise<void> {
-  assertWritableStorageMode();
+  assertWritableStorage(ANALYTICS_STORAGE_ERROR);
   if (USE_DATABASE) {
     await ensureSchema();
     await getPool().query(
@@ -365,7 +320,7 @@ function aggregateFromRows(all: VisitRow[], includeBots: boolean): Omit<Analytic
 }
 
 export async function queryAnalytics(q: AnalyticsQuery): Promise<AnalyticsReport> {
-  assertWritableStorageMode();
+  assertWritableStorage(ANALYTICS_STORAGE_ERROR);
   const offset = (q.page - 1) * q.pageSize;
 
   if (USE_DATABASE) {
