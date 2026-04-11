@@ -555,15 +555,16 @@ export default function EntriesPage() {
             className={!hasMore && isRebounding ? "rebound-transition" : ""}
           >
           <div className="px-4 pt-5">
-          <div className="mb-5 flex flex-wrap items-start gap-4">
+          <div className="entries-top-cards mb-5 -mx-4 flex items-start gap-4 overflow-x-auto px-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             {/* 日历热力图：始终显示，无选中态 */}
-            <CalendarHeatmap datesWithPosts={datesWithPosts} />
+            <div className="shrink-0">
+              <CalendarHeatmap datesWithPosts={datesWithPosts} />
+            </div>
             {/* 博客卡片：activeTopTab===0 选中 */}
             <button
               type="button"
               onClick={() => setActiveTopTab(0)}
-              className={`inline-flex h-[148px] flex-col items-start justify-center rounded-xl border border-zinc-200 bg-white/80 px-5 shadow-sm transition-apple dark:border-zinc-700 dark:bg-zinc-800/80 ${activeTopTab === 0 ? "ring-2 ring-inset ring-zinc-400 dark:ring-zinc-500" : "opacity-60"}`}
-              style={{ width: "min(100%, 168px)" }}
+              className={`inline-flex h-[148px] w-[168px] shrink-0 flex-col items-start justify-center rounded-xl border border-zinc-200 bg-white/80 px-5 shadow-sm transition-apple dark:border-zinc-700 dark:bg-zinc-800/80 ${activeTopTab === 0 ? "ring-2 ring-inset ring-zinc-400 dark:ring-zinc-500" : "opacity-60"}`}
             >
               <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">博客</p>
               <p className="mt-2 text-2xl font-bold text-zinc-900 dark:text-zinc-50">{totalPosts}</p>
@@ -576,8 +577,7 @@ export default function EntriesPage() {
             <button
               type="button"
               onClick={() => setActiveTopTab(1)}
-              className={`inline-grid h-[148px] rounded-xl border border-zinc-200 bg-white/80 p-2.5 shadow-sm transition-apple dark:border-zinc-700 dark:bg-zinc-800/80 ${activeTopTab === 1 ? "ring-2 ring-inset ring-zinc-400 dark:ring-zinc-500" : "opacity-60"}`}
-              style={{ width: "min(100%, 168px)" }}
+              className={`inline-grid h-[148px] w-[168px] shrink-0 rounded-xl border border-zinc-200 bg-white/80 p-2.5 shadow-sm transition-apple dark:border-zinc-700 dark:bg-zinc-800/80 ${activeTopTab === 1 ? "ring-2 ring-inset ring-zinc-400 dark:ring-zinc-500" : "opacity-60"}`}
             >
               <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-2">
                 {Array.from({ length: 4 }).map((_, i) => {
