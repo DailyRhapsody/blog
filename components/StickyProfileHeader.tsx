@@ -169,7 +169,12 @@ export default function StickyProfileHeader({
     };
   }, []);
 
-  const effectiveScrollY = typeof externalScrollY === "number" ? externalScrollY : scrollY;
+  // externalScrollY (entries 页的 virtualScroll) 上限只到 HEADER_COLLAPSE_RANGE=204，
+  // 小于 HEADER_COLLAPSE_AT=214，单独用它 isCollapsed 永远无法触发。
+  // 叠加 window.scrollY：virtualScroll 先吸收到 204，之后原生滚动继续累加，
+  // 总和越过 214 才进入吸顶 pill 态，保证收起后显示小头像 + 昵称。
+  const effectiveScrollY =
+    typeof externalScrollY === "number" ? externalScrollY + scrollY : scrollY;
   const nearTop = effectiveScrollY < 28;
   const isReturning = isReturnToTopAnimating;
   const signatureTrimmed = profile?.signature?.trim() ?? "";
@@ -236,34 +241,34 @@ export default function StickyProfileHeader({
       />
       <div className="absolute inset-0 bg-black/50" />
       {isCollapsed && !isReturning && (
-        <div className="absolute inset-0 z-10 flex items-stretch justify-center px-5">
-          <button
-            type="button"
-            className="h-full min-w-0 flex-1 cursor-pointer"
-            onClick={runReturnToTop}
-            aria-label="回到顶部并展开（左侧区域）"
-          />
-          <div className="pointer-events-none flex shrink-0 items-center gap-2 py-0">
-            <span className="pointer-events-auto">{renderAvatar("sm")}</span>
-            <Link
-              href="/"
-              className="pointer-events-auto inline-flex min-w-0 w-fit self-center"
-              aria-label="首页"
-            >
-              <p className="whitespace-nowrap text-base font-bold leading-tight text-white">
-                {profile?.name ?? "DailyRhapsody"}
-              </p>
-            </Link>
-          </div>
-          <button
-            type="button"
-            className="h-full min-w-0 flex-1 cursor-pointer"
-            onClick={runReturnToTop}
-            aria-label="回到顶部并展开（右侧区域）"
-          />
-        </div>
+        <button
+          type="button"
+          className="absolute inset-0 z-10 cursor-pointer"
+          onClick={runReturnToTop}
+          aria-label="回到顶部并展开"
+        />
       )}
       <div className="relative flex h-full w-full flex-col justify-center px-5">
+        <div
+          className={`absolute inset-0 z-20 flex items-center justify-center px-5 ${
+            isCollapsed ? "pointer-events-auto" : "pointer-events-none"
+          }`}
+        >
+          <div
+            className={`inline-flex transition-[transform,opacity] duration-400 ease-out ${
+              isCollapsed ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
+            }`}
+          >
+            <div className="inline-flex max-w-full items-center gap-2">
+              <span className="shrink-0 leading-none">{renderAvatar("sm")}</span>
+              <Link href="/" className="inline-flex min-w-0 w-fit self-center" aria-label="首页">
+                <p className="whitespace-nowrap text-base font-bold leading-tight text-white">
+                  {profile?.name ?? "DailyRhapsody"}
+                </p>
+              </Link>
+            </div>
+          </div>
+        </div>
         <div
           className={`min-w-0 flex-1 transition-[transform,opacity] duration-400 ease-out ${
             isCollapsed
@@ -271,10 +276,21 @@ export default function StickyProfileHeader({
               : "flex flex-col justify-center translate-y-0 opacity-100"
           }`}
         >
-          <div className="inline-flex w-fit max-w-full shrink-0 items-center gap-4 self-start">
+          <div
+            className={`inline-flex w-fit max-w-full shrink-0 items-center gap-4 ${
+              hasSignature ? "self-start" : "self-center mx-auto"
+            }`}
+          >
             {renderAvatar("lg")}
-            <div className="flex min-w-0 flex-col justify-center gap-1">
-              <Link href="/" className="inline-flex w-fit self-start">
+            <div
+              className={`flex min-w-0 flex-col justify-center gap-1 ${
+                hasSignature ? "" : "items-center text-center"
+              }`}
+            >
+              <Link
+                href="/"
+                className={`inline-flex w-fit ${hasSignature ? "self-start" : "self-center"}`}
+              >
                 <p className="whitespace-nowrap text-lg font-bold text-white">
                   {profile?.name ?? "DailyRhapsody"}
                 </p>
