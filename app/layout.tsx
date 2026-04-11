@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AnalyticsCollector } from "@/components/AnalyticsCollector";
+import { GateClient } from "@/components/GateClient";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -33,6 +34,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         {children}
+        <GateClient />
         <AnalyticsCollector />
         {/* Anti-Scrape Honeypot */}
         <a 

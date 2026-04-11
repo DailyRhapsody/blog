@@ -8,7 +8,9 @@ import { extractHashtagsFromMarkdown } from "@/lib/hashtags";
 import { localYmd } from "@/lib/publish-datetime";
 
 const DEFAULT_PAGE_SIZE = 30;
-const MAX_PAGE_SIZE = 100;
+// 收紧到 30：原值 100 让爬虫两次请求即可拿走全站 summary。
+// 真实前端使用滚动加载，每次 30 条已经够用。
+const MAX_PAGE_SIZE = 30;
 
 function getTagCounts(diaries: Diary[]): { name: string; value: number }[] {
   const count = new Map<string, number>();
@@ -25,7 +27,7 @@ function getTagCounts(diaries: Diary[]): { name: string; value: number }[] {
 export async function GET(req: Request) {
   const blocked = await guardApiRequest(req, {
     scope: "diaries:list",
-    limit: 90,
+    limit: 60,
     windowMs: 60_000,
   });
   if (blocked) return blocked;

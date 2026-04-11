@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { recordVisit } from "@/lib/analytics-store";
 import { isAdmin } from "@/lib/auth";
@@ -8,6 +9,7 @@ import {
   isLikelyBotUserAgent,
   withAntiScrapeHeaders,
 } from "@/lib/request-guard";
+import { SCRAPE_GATE_COOKIE, verifyGateValue } from "@/lib/scrape-gate";
 
 function normalizeVisitPath(raw: unknown): { path: string; queryString: string | null } | null {
   if (typeof raw !== "string") return null;
@@ -39,12 +41,23 @@ export async function POST(req: Request) {
   // 管理员自身的浏览不计入统计
   if (await isAdmin()) return new NextResponse(null, { status: 204 });
 
+  // 必须持有有效 dr_gate cookie，否则视为脏数据，静默丢弃。
+  // 之前任何人都能匿名 POST 污染统计/UTM 字段，配合 sendBeacon 也无法检验，现已收紧。
+  const gate = (await cookies()).get(SCRAPE_GATE_COOKIE)?.value;
+  if (!verifyGateValue(gate)) {
+    return withAntiScrapeHeaders(
+      NextResponse.json({ error: "missing gate" }, { status: 403 })
+    );
+  }
+
   const blocked = await guardApiRequest(req, {
     scope: "analytics:collect",
     limit: 240,
     windowMs: 60_000,
     blockSuspicious: false,
+    // sendBeacon 在部分浏览器不带 Origin 头，依然要求 Sec-Fetch 校验把关
     checkOrigin: false,
+    checkSecFetch: false,
   });
   if (blocked) return blocked;
 

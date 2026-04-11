@@ -38,7 +38,7 @@ export async function GET(
 ) {
   const blocked = await guardApiRequest(req, {
     scope: "moments:one",
-    limit: 120,
+    limit: 40,
     windowMs: 60_000,
   });
   if (blocked) return blocked;

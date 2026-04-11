@@ -7,7 +7,7 @@ import { addGalleryItem, getGalleryItems } from "@/lib/gallery-store";
 export async function GET(req: Request) {
   const blocked = await guardApiRequest(req, {
     scope: "gallery:list",
-    limit: 240,
+    limit: 90,
     windowMs: 60_000,
   });
   if (blocked) return blocked;

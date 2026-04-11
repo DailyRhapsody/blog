@@ -13,7 +13,7 @@ export async function GET(
 ) {
   const blocked = await guardApiRequest(req, {
     scope: "diaries:detail",
-    limit: 120,
+    limit: 40,
     windowMs: 60_000,
   });
   if (blocked) return blocked;

@@ -65,13 +65,14 @@ function parseMedia(raw: unknown): MomentMediaInput[] {
 export async function GET(req: Request) {
   const blocked = await guardApiRequest(req, {
     scope: "moments:list",
-    limit: 240,
+    limit: 90,
     windowMs: 60_000,
   });
   if (blocked) return blocked;
 
   const url = new URL(req.url);
-  const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit")) || 10));
+  // 收紧到 20：之前 50；与前端实际使用的批量大小一致，避免 ?limit=10000 一次拖走
+  const limit = Math.min(20, Math.max(1, Number(url.searchParams.get("limit")) || 10));
   const offset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
 
   try {

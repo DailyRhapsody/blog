@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { limitByIp } from "@/lib/upstash-rate-limit";
+import { recordViolation } from "@/lib/honeypot";
+import { getClientIpFromRequest } from "@/lib/client-ip";
+import { getAllowedHostnames } from "@/lib/site-hosts";
 
 type Bucket = {
   count: number;
@@ -25,12 +28,6 @@ export function isLikelyBotUserAgent(userAgent: string | null | undefined): bool
   // 2. 匹配常见爬虫关键字
   if (BOT_UA_RE.test(ua)) return true;
   return false;
-}
-
-function getClientIp(req: Request) {
-  const xff = req.headers.get("x-forwarded-for");
-  if (xff) return xff.split(",")[0]?.trim() || "unknown";
-  return req.headers.get("x-real-ip") || "unknown";
 }
 
 function isSuspiciousRequest(req: Request) {
@@ -59,25 +56,6 @@ function isSuspiciousRequest(req: Request) {
   return false;
 }
 
-/** 提取 host 头里的 hostname（去掉 port、首项），并附带可能的 x-forwarded-host。 */
-function expectedHostnames(req: Request): Set<string> {
-  const out = new Set<string>();
-  try {
-    out.add(new URL(req.url).hostname.toLowerCase());
-  } catch {}
-  const host = req.headers.get("host");
-  if (host) {
-    const h = host.split(",")[0]?.trim().split(":")[0]?.toLowerCase();
-    if (h) out.add(h);
-  }
-  const fwd = req.headers.get("x-forwarded-host");
-  if (fwd) {
-    const h = fwd.split(",")[0]?.trim().split(":")[0]?.toLowerCase();
-    if (h) out.add(h);
-  }
-  return out;
-}
-
 function urlHostname(value: string): string | null {
   try {
     return new URL(value).hostname.toLowerCase();
@@ -88,23 +66,44 @@ function urlHostname(value: string): string | null {
 
 /**
  * 校验 Origin / Referer 与本站 host 一致，防止跨站抓取与 CSRF 假冒来源。
- * - 必须用精确 hostname 比较（避免 evil-host.com 子串绕过 host.com）
- * - Origin 与 Referer 至少有一个存在时，必须同源；
- *   两者都不存在时（如 nofetch / 部分隐私模式）放行，由 cookie + rate-limit 兜底。
+ * - 必须用精确 hostname 比较（避免 evil-host.com 子串绕过 host.com）。
+ * - 至少要有一个（Origin 或 Referer）存在且同源；两者都没有视为可疑。
+ * - 白名单只来自 NEXT_PUBLIC_SITE_URL / SITE_HOSTNAMES 环境变量，**不读 Host 头**，
+ *   否则攻击者只要 `-H "Host: evil.com" -H "Origin: https://evil.com"` 就能伪造同源。
  */
 export function checkOriginOrReferer(req: Request): boolean {
-  const allowed = expectedHostnames(req);
+  const allowed = getAllowedHostnames();
   const origin = req.headers.get("origin");
+  const referer = req.headers.get("referer");
+
+  if (!origin && !referer) return false;
+
   if (origin) {
     const h = urlHostname(origin);
     if (!h || !allowed.has(h)) return false;
   }
-  const referer = req.headers.get("referer");
   if (referer) {
     const h = urlHostname(referer);
     if (!h || !allowed.has(h)) return false;
   }
   return true;
+}
+
+/**
+ * 校验 Sec-Fetch-Site 是否同源。
+ * 现代浏览器（Chrome 76+、Firefox 90+、Safari 16+）发起 fetch/XHR/sendBeacon
+ * 时会自动带这个头：
+ *   - same-origin：站内 fetch（正常情况）
+ *   - same-site / cross-site / none：跨站或直接导航
+ * 服务器侧 fetch / curl / requests 默认不会发送，所以缺失即视作可疑。
+ *
+ * 该校验仅对 API 调用生效；页面导航 (Sec-Fetch-Dest=document) 走的是 attachSeed
+ * 路径，不经过这里。
+ */
+export function checkSecFetchSiteSameOrigin(req: Request): boolean {
+  const sfs = req.headers.get("sec-fetch-site");
+  if (!sfs) return false;
+  return sfs === "same-origin";
 }
 
 export function withAntiScrapeHeaders(res: NextResponse) {
@@ -136,29 +135,43 @@ export async function guardApiRequest(
     windowMs,
     blockSuspicious = true,
     checkOrigin = true,
+    checkSecFetch = true,
   }: {
     scope: string;
     limit: number;
     windowMs: number;
     blockSuspicious?: boolean;
     checkOrigin?: boolean;
+    /** 是否要求 Sec-Fetch-Site=same-origin。默认开启；analytics/sendBeacon 等需要时可关闭。 */
+    checkSecFetch?: boolean;
   }
 ): Promise<NextResponse | null> {
+  const ip = getClientIpFromRequest(req);
+
   if (blockSuspicious && isSuspiciousRequest(req)) {
+    await recordViolation(ip, `suspicious req scope=${scope}`);
     return withAntiScrapeHeaders(
       NextResponse.json({ error: "请求由于可疑行为被拦截" }, { status: 403 })
     );
   }
 
   if (checkOrigin && !checkOriginOrReferer(req)) {
+    await recordViolation(ip, `bad origin scope=${scope}`);
     return withAntiScrapeHeaders(
       NextResponse.json({ error: "禁止跨域抓取" }, { status: 403 })
     );
   }
 
-  const ip = getClientIp(req);
+  if (checkSecFetch && !checkSecFetchSiteSameOrigin(req)) {
+    await recordViolation(ip, `bad sec-fetch scope=${scope}`);
+    return withAntiScrapeHeaders(
+      NextResponse.json({ error: "请求来源异常" }, { status: 403 })
+    );
+  }
+
   const allowed = await limitByIp(scope, ip, limit, `${windowMs} ms`);
   if (!allowed) {
+    await recordViolation(ip, `rate limit scope=${scope}`);
     return tooManyRequests(Date.now() + 60_000);
   }
 
@@ -174,6 +187,7 @@ export async function guardApiRequest(
   buckets.set(key, bucket);
 
   if (bucket.count > limit) {
+    await recordViolation(ip, `local bucket scope=${scope}`);
     return tooManyRequests(bucket.resetAt);
   }
 

@@ -7,7 +7,7 @@ import { rejectCrossSiteWrite } from "@/lib/same-origin";
 export async function GET(req: Request) {
   const blocked = await guardApiRequest(req, {
     scope: "profile:get",
-    limit: 90,
+    limit: 60,
     windowMs: 60_000,
   });
   if (blocked) return blocked;

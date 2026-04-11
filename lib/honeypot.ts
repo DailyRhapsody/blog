@@ -9,10 +9,16 @@ const redis =
     : null;
 
 const BLOCK_PREFIX = "dr:blocked:";
+const VIOL_PREFIX = "dr:viol:";
+const NONCE_PREFIX = "dr:gate:nonce:";
 const BLOCK_DURATION_S = 60 * 60 * 24; // 封禁 24 小时
+const VIOL_WINDOW_S = 60 * 10; // 违规计数窗口 10 分钟
+const VIOL_THRESHOLD = 4; // 10 分钟内累计 4 次违规即自动封禁
+const NONCE_TTL_S = 60 * 5; // 与 SEED_TTL_MS 对齐
 
 export async function blockIp(ip: string, reason: string) {
   if (!redis) return;
+  if (!ip || ip === "unknown") return;
   console.warn(`Blocking IP ${ip} for ${reason}`);
   await redis.set(`${BLOCK_PREFIX}${ip}`, {
     ip,
@@ -23,6 +29,52 @@ export async function blockIp(ip: string, reason: string) {
 
 export async function isIpBlocked(ip: string): Promise<boolean> {
   if (!redis) return false;
+  if (!ip || ip === "unknown") return false;
   const blocked = await redis.get(`${BLOCK_PREFIX}${ip}`);
   return !!blocked;
+}
+
+/**
+ * 标记一个 seed nonce 为「已兑换」。返回 true 表示首次写入成功（可放行兑换），
+ * false 表示该 nonce 之前已被使用过（重放攻击，必须拒绝）。
+ *
+ * 没有 Redis 时返回 true（仅依赖 IP 绑定兜底）。
+ */
+export async function markNonceUsed(nonce: string): Promise<boolean> {
+  if (!redis) return true;
+  if (!nonce) return false;
+  try {
+    const res = await redis.set(`${NONCE_PREFIX}${nonce}`, "1", {
+      nx: true,
+      ex: NONCE_TTL_S,
+    });
+    return res === "OK";
+  } catch (e) {
+    console.warn("markNonceUsed failed", e);
+    // Redis 故障时不要让真人卡住
+    return true;
+  }
+}
+
+/**
+ * 记一次违规（命中限流 / 可疑特征 / 跨域抓取等）。
+ * 短窗口内累计达到阈值会自动封禁该 IP 24 小时。
+ */
+export async function recordViolation(ip: string, reason: string): Promise<void> {
+  if (!redis) return;
+  if (!ip || ip === "unknown") return;
+  const key = `${VIOL_PREFIX}${ip}`;
+  try {
+    const count = await redis.incr(key);
+    if (count === 1) {
+      await redis.expire(key, VIOL_WINDOW_S);
+    }
+    if (count >= VIOL_THRESHOLD) {
+      await blockIp(ip, `Auto-block: ${count} violations in ${VIOL_WINDOW_S}s. Last: ${reason}`);
+      // 清空计数避免后续误触
+      await redis.del(key);
+    }
+  } catch (e) {
+    console.warn("recordViolation failed", e);
+  }
 }

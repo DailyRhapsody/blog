@@ -6,7 +6,7 @@ import { rejectCrossSiteWrite } from "@/lib/same-origin";
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const blocked = await guardApiRequest(req, {
     scope: "comments:list",
-    limit: 60,
+    limit: 40,
     windowMs: 60_000,
   });
   if (blocked) return blocked;
