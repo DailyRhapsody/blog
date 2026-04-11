@@ -171,8 +171,15 @@ export default async function proxy(req: NextRequest) {
 
   if (isProtectedPublicApi(pathname, method)) {
     if (!passPublicDataApi(req)) {
-      // 没有合法 gate cookie 直接打 API → 自动化抓取的典型特征
-      await recordViolation(ip, `no gate cookie on ${pathname}`);
+      // 合法浏览器在 GateClient 完成 PoW 握手前会带着 dr_seed 先发出若干并发请求，
+      // 此时尚未拥有 dr_gate 是预期状态 → 返回 403 但不计违规（否则首屏 3 个并发
+      // 受保护请求就会瞬间逼近阈值，刷新一次直接把真人封掉）。
+      // 完全没有 dr_seed 的请求才是典型的脚本/curl 直连抓取，仍需记违规。
+      const seedRaw = req.cookies.get(SCRAPE_SEED_COOKIE)?.value;
+      const hasLegitSeed = verifySeedValue(seedRaw, ip);
+      if (!hasLegitSeed) {
+        await recordViolation(ip, `no gate cookie on ${pathname}`);
+      }
       return withAntiScrapeHeaders(
         NextResponse.json(
           {
