@@ -13,14 +13,35 @@
 
 let cached: Set<string> | null = null;
 
+/**
+ * 给一个 hostname 自动派生 www ↔ 裸域双向变体。
+ * 仅对顶级域 + 二级域这种结构生效（example.com / sub.example.com / www.example.com），
+ * 避免在 localhost / IP / 纯顶级 TLD 上做无意义补齐。
+ */
+function expandWwwVariants(host: string): string[] {
+  const h = host.toLowerCase();
+  if (!h || !h.includes(".")) return [h];
+  if (/^[\d.:]+$/.test(h)) return [h]; // IP
+  if (h.startsWith("www.")) {
+    const bare = h.slice(4);
+    return bare.includes(".") ? [h, bare] : [h];
+  }
+  // 裸域或 non-www 子域 → 同时允许 www 前缀版本
+  return [h, `www.${h}`];
+}
+
 export function getAllowedHostnames(): Set<string> {
   if (cached) return cached;
   const set = new Set<string>();
 
+  const add = (raw: string) => {
+    for (const v of expandWwwVariants(raw)) set.add(v);
+  };
+
   const primary = process.env.NEXT_PUBLIC_SITE_URL?.trim();
   if (primary) {
     try {
-      set.add(new URL(primary).hostname.toLowerCase());
+      add(new URL(primary).hostname);
     } catch {
       /* ignore malformed env */
     }
@@ -30,8 +51,8 @@ export function getAllowedHostnames(): Set<string> {
   const extra = process.env.SITE_HOSTNAMES?.trim();
   if (extra) {
     for (const h of extra.split(",")) {
-      const t = h.trim().toLowerCase();
-      if (t) set.add(t);
+      const t = h.trim();
+      if (t) add(t);
     }
   }
 
