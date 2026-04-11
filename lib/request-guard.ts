@@ -136,6 +136,7 @@ export async function guardApiRequest(
     blockSuspicious = true,
     checkOrigin = true,
     checkSecFetch = true,
+    skipViolationRecord = false,
   }: {
     scope: string;
     limit: number;
@@ -144,26 +145,35 @@ export async function guardApiRequest(
     checkOrigin?: boolean;
     /** 是否要求 Sec-Fetch-Site=same-origin。默认开启；analytics/sendBeacon 等需要时可关闭。 */
     checkSecFetch?: boolean;
+    /**
+     * 失败时不记违规计数。用于 /api/auth/login 这类"救济"入口：
+     * 即使在自家 IP 被封的情况下也得让管理员能试错几次，不能让失败的登陆
+     * 尝试把自己的 IP 推得更深。配合 blockSuspicious=false 使用。
+     */
+    skipViolationRecord?: boolean;
   }
 ): Promise<NextResponse | null> {
   const ip = getClientIpFromRequest(req);
+  const violate = async (reason: string) => {
+    if (!skipViolationRecord) await recordViolation(ip, reason);
+  };
 
   if (blockSuspicious && isSuspiciousRequest(req)) {
-    await recordViolation(ip, `suspicious req scope=${scope}`);
+    await violate(`suspicious req scope=${scope}`);
     return withAntiScrapeHeaders(
       NextResponse.json({ error: "请求由于可疑行为被拦截" }, { status: 403 })
     );
   }
 
   if (checkOrigin && !checkOriginOrReferer(req)) {
-    await recordViolation(ip, `bad origin scope=${scope}`);
+    await violate(`bad origin scope=${scope}`);
     return withAntiScrapeHeaders(
       NextResponse.json({ error: "禁止跨域抓取" }, { status: 403 })
     );
   }
 
   if (checkSecFetch && !checkSecFetchSiteSameOrigin(req)) {
-    await recordViolation(ip, `bad sec-fetch scope=${scope}`);
+    await violate(`bad sec-fetch scope=${scope}`);
     return withAntiScrapeHeaders(
       NextResponse.json({ error: "请求来源异常" }, { status: 403 })
     );
@@ -171,7 +181,7 @@ export async function guardApiRequest(
 
   const allowed = await limitByIp(scope, ip, limit, `${windowMs} ms`);
   if (!allowed) {
-    await recordViolation(ip, `rate limit scope=${scope}`);
+    await violate(`rate limit scope=${scope}`);
     return tooManyRequests(Date.now() + 60_000);
   }
 
@@ -187,7 +197,7 @@ export async function guardApiRequest(
   buckets.set(key, bucket);
 
   if (bucket.count > limit) {
-    await recordViolation(ip, `local bucket scope=${scope}`);
+    await violate(`local bucket scope=${scope}`);
     return tooManyRequests(bucket.resetAt);
   }
 

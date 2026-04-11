@@ -4,6 +4,8 @@ import { createSessionCookie } from "@/lib/auth";
 import { guardApiRequest } from "@/lib/request-guard";
 import { rejectCrossSiteWrite } from "@/lib/same-origin";
 import { sleepLoginPenalty } from "@/lib/brute-delay";
+import { getClientIpFromRequest } from "@/lib/client-ip";
+import { unblockIp } from "@/lib/honeypot";
 
 /** 常量时间字符串比较：两个 string 都先 utf8 编码到等长 buffer 再比较，
  *  长度不同也保持执行一次同等长度的 timingSafeEqual，避免泄露长度信息。 */
@@ -19,11 +21,19 @@ function safeStringEqual(a: string, b: string): boolean {
 }
 
 export async function POST(req: Request) {
+  // 登陆是"救济入口"：必须让管理员在自己 IP 已经触发违规甚至被封的状态下
+  // 也能顺利登陆。因此：
+  //  - skipViolationRecord=true：失败的校验不能再给本 IP 加违规计数
+  //  - checkSecFetch=false：部分浏览器 / WebView / iOS Safari 在老版本上
+  //    不发 Sec-Fetch-Site，这是正常合法请求；登陆仍保留 Origin 校验来挡跨站
+  //  - rate limit 照常工作（limit=12 / 15min）防暴力破解
   const blocked = await guardApiRequest(req, {
     scope: "auth:login",
     limit: 12,
     windowMs: 900_000,
     blockSuspicious: false,
+    checkSecFetch: false,
+    skipViolationRecord: true,
   });
   if (blocked) return blocked;
 
@@ -47,6 +57,18 @@ export async function POST(req: Request) {
     await sleepLoginPenalty();
     return NextResponse.json({ error: "Wrong password" }, { status: 401 });
   }
+
+  // 登陆成功 → 主动解封本 IP 的黑名单与违规计数，避免之前的误触续期把刚登陆
+  // 的管理员又锁在页面外。相当于"登陆即救济"。
+  const ip = getClientIpFromRequest(req);
+  if (ip && ip !== "unknown") {
+    try {
+      await unblockIp(ip);
+    } catch {
+      /* best-effort：Redis 抖动不应阻断登陆 */
+    }
+  }
+
   const cookie = createSessionCookie(body.remember === true);
   const res = NextResponse.json({ ok: true });
   res.headers.set("Set-Cookie", cookie);
