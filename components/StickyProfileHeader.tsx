@@ -3,6 +3,12 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import AvatarLifeRing from "@/components/AvatarLifeRing";
+import {
+  HEADER_COLLAPSED_H,
+  HEADER_COLLAPSE_AT,
+  HEADER_COLLAPSE_RANGE,
+  HEADER_EXPANDED_H,
+} from "@/lib/layout-constants";
 
 export type StickyProfileHeaderData = {
   name: string;
@@ -139,9 +145,6 @@ export default function StickyProfileHeader({
       return;
     }
 
-    const HEADER_EXPANDED = 260;
-    const HEADER_COLLAPSED = 56;
-
     returnToTopPhaseRef.current = 1;
     setIsReturnToTopAnimating(true);
 
@@ -181,7 +184,7 @@ export default function StickyProfileHeader({
           const p = Math.min(elapsed / EXPAND_MS, 1);
           const eased = easeOutCubic(p);
 
-          const h = HEADER_COLLAPSED + (HEADER_EXPANDED - HEADER_COLLAPSED) * eased;
+          const h = HEADER_COLLAPSED_H + HEADER_COLLAPSE_RANGE * eased;
           if (headerRef.current) {
             headerRef.current.style.height = `${h}px`;
           }
@@ -221,10 +224,6 @@ export default function StickyProfileHeader({
     };
   }, []);
 
-  const HEADER_EXPANDED = 260;
-  const HEADER_COLLAPSED = 56;
-  const threshold = HEADER_EXPANDED - HEADER_COLLAPSED;
-  const COLLAPSE_AT = threshold + 10;
   const effectiveScrollY = typeof externalScrollY === "number" ? externalScrollY : scrollY;
   const nearTop = effectiveScrollY < 28;
   const isReturning = isReturnToTopAnimating;
@@ -232,11 +231,12 @@ export default function StickyProfileHeader({
   const hasSignature = signatureTrimmed.length > 0;
 
   const height = isReturning
-    ? HEADER_COLLAPSED
+    ? HEADER_COLLAPSED_H
     : nearTop
-      ? HEADER_EXPANDED
-      : Math.max(HEADER_COLLAPSED, HEADER_EXPANDED - effectiveScrollY);
-  const isCollapsed = isReturning && !isHeaderExpanding ? true : effectiveScrollY >= COLLAPSE_AT;
+      ? HEADER_EXPANDED_H
+      : Math.max(HEADER_COLLAPSED_H, HEADER_EXPANDED_H - effectiveScrollY);
+  const isCollapsed =
+    isReturning && !isHeaderExpanding ? true : effectiveScrollY >= HEADER_COLLAPSE_AT;
 
   const bgUrl = profile?.headerBg?.trim() || "/header-bg.png";
 

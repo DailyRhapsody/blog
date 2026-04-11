@@ -18,6 +18,7 @@ import type {
 import { useProfile } from "@/hooks/useProfile";
 import { useAdminSession } from "@/hooks/useAdminSession";
 import { useGalleryLegacy } from "@/hooks/useGalleryLegacy";
+import { HEADER_COLLAPSE_RANGE } from "@/lib/layout-constants";
 
 export default function EntriesPage() {
   const [items, setItems] = useState<Diary[]>([]);
@@ -69,11 +70,8 @@ export default function EntriesPage() {
   const hasMore = items.length < total && total > 0;
   const maxTagCount = tagCounts[0]?.value ?? 1;
 
-  /* ── 两阶段收缩：virtualScroll 驱动 header → 原生滚动 ── */
-  const HEADER_EXPANDED_H = 260;
-  const HEADER_COLLAPSED_H = 56;
-  const PHASE1_RANGE = HEADER_EXPANDED_H - HEADER_COLLAPSED_H; // 204: header 收缩量
-  const TOTAL_ABSORB = PHASE1_RANGE; // header 收缩完即放行原生滚动
+  /* ── 两阶段收缩：virtualScroll 先吸收 header 收缩量再放行原生滚动 ── */
+  const TOTAL_ABSORB = HEADER_COLLAPSE_RANGE;
 
   useEffect(() => {
     hasMoreRef.current = hasMore;
