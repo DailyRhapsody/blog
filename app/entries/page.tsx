@@ -18,8 +18,6 @@ import type {
 import { useProfile } from "@/hooks/useProfile";
 import { useAdminSession } from "@/hooks/useAdminSession";
 import { useGalleryLegacy } from "@/hooks/useGalleryLegacy";
-import { HEADER_COLLAPSE_RANGE } from "@/lib/layout-constants";
-
 export default function EntriesPage() {
   const [items, setItems] = useState<Diary[]>([]);
   const [total, setTotal] = useState(0);
@@ -41,8 +39,6 @@ export default function EntriesPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [entriesFlipped, setEntriesFlipped] = useState(false);
   const [, setScrollYPos] = useState(0);
-  const [virtualScroll, setVirtualScroll] = useState(0);
-  const virtualScrollRef = useRef(0);
   const [activeTopTab, setActiveTopTab] = useState(0); // 0=博客, 1=画廊
   const activeTopTabRef = useRef(0);
   const [eggPullY, setEggPullY] = useState(0);
@@ -229,7 +225,7 @@ export default function EntriesPage() {
     return () => clearTimeout(t);
   }, []);
 
-  /* ── 三阶段滚动拦截：virtualScroll 吸收 header/tools 收缩，然后放行原生滚动 ── */
+  /* ── 同步 window.scrollY 到本地 state（供其他逻辑使用） ── */
   useEffect(() => {
     let rafId = 0;
     const syncScrollY = () => {
@@ -241,79 +237,8 @@ export default function EntriesPage() {
     };
     syncScrollY();
     window.addEventListener("scroll", syncScrollY, { passive: true });
-
-    function onWheel(e: WheelEvent) {
-      // 水平滑动用于切换 tab，不拦截
-      if (Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 2) return;
-
-      const vs = virtualScrollRef.current;
-
-      if (e.deltaY > 0) {
-        // 向下滚
-        if (vs < HEADER_COLLAPSE_RANGE) {
-          e.preventDefault();
-          const next = Math.min(HEADER_COLLAPSE_RANGE, vs + e.deltaY);
-          virtualScrollRef.current = next;
-          setVirtualScroll(next);
-          // 如果恰好满了，将剩余 delta 传给原生滚动
-          if (next === HEADER_COLLAPSE_RANGE && vs < HEADER_COLLAPSE_RANGE) {
-            const remaining = e.deltaY - (HEADER_COLLAPSE_RANGE - vs);
-            if (remaining > 0) window.scrollBy(0, remaining);
-          }
-        }
-        // 已满：放行原生滚动
-      } else if (e.deltaY < 0) {
-        // 向上滚
-        const pageY = window.scrollY;
-        if (pageY <= 0 && vs > 0) {
-          e.preventDefault();
-          const next = Math.max(0, vs + e.deltaY);
-          virtualScrollRef.current = next;
-          setVirtualScroll(next);
-        }
-        // pageY > 0：放行原生滚动
-      }
-    }
-
-    // 触摸拦截
-    let touchLastY = 0;
-
-    function onTouchStart(e: TouchEvent) {
-      touchLastY = e.touches[0].clientY;
-    }
-
-    function onTouchMove(e: TouchEvent) {
-      const currentY = e.touches[0].clientY;
-      const delta = touchLastY - currentY; // 正=下滚
-      touchLastY = currentY;
-
-      const vs = virtualScrollRef.current;
-      const pageY = window.scrollY;
-
-      if (delta > 0 && vs < HEADER_COLLAPSE_RANGE) {
-        // 下滚，吸收
-        e.preventDefault();
-        const next = Math.min(HEADER_COLLAPSE_RANGE, vs + delta);
-        virtualScrollRef.current = next;
-        setVirtualScroll(next);
-      } else if (delta < 0 && pageY <= 0 && vs > 0) {
-        // 上滚，回退 virtualScroll
-        e.preventDefault();
-        const next = Math.max(0, vs + delta);
-        virtualScrollRef.current = next;
-        setVirtualScroll(next);
-      }
-    }
-
-    document.addEventListener("wheel", onWheel, { passive: false });
-    document.addEventListener("touchstart", onTouchStart, { passive: true });
-    document.addEventListener("touchmove", onTouchMove, { passive: false });
-
     return () => {
       window.removeEventListener("scroll", syncScrollY);
-      document.removeEventListener("wheel", onWheel);
-      document.removeEventListener("touchstart", onTouchStart);
-      document.removeEventListener("touchmove", onTouchMove);
       if (rafId) cancelAnimationFrame(rafId);
     };
   }, []);
@@ -535,11 +460,6 @@ export default function EntriesPage() {
             entriesBgmSrc={
               process.env.NEXT_PUBLIC_ENTRIES_BGM_SRC?.trim() || undefined
             }
-            externalScrollY={virtualScroll}
-            onReturnToTop={() => {
-              virtualScrollRef.current = 0;
-              setVirtualScroll(0);
-            }}
           />
 
           <div

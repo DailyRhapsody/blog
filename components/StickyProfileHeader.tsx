@@ -3,12 +3,6 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import AvatarLifeRing from "@/components/AvatarLifeRing";
-import {
-  HEADER_COLLAPSED_H,
-  HEADER_COLLAPSE_AT,
-  HEADER_COLLAPSE_RANGE,
-  HEADER_EXPANDED_H,
-} from "@/lib/layout-constants";
 
 export type StickyProfileHeaderData = {
   name: string;
@@ -25,16 +19,10 @@ export type StickyProfileHeaderData = {
 export default function StickyProfileHeader({
   profile,
   entriesBgmSrc,
-  externalScrollY,
-  onReturnToTop,
 }: {
   profile: StickyProfileHeaderData | null;
   /** 文章页背景音乐 URL（如 `/audio/houlai-dewomen.mp3`）；不传则头像仍可点进首页 */
   entriesBgmSrc?: string;
-  /** 外部传入的虚拟 scrollY，用于三阶段收缩；不传则使用内部 window.scrollY */
-  externalScrollY?: number;
-  /** 回到顶部时通知父组件重置 virtualScroll */
-  onReturnToTop?: () => void;
 }) {
   const [scrollY, setScrollY] = useState(0);
   const [isReturnToTopAnimating, setIsReturnToTopAnimating] = useState(false);
@@ -46,6 +34,31 @@ export default function StickyProfileHeader({
   const returnToTopRafRef = useRef<number>(0);
 
   const hasEntriesBgm = Boolean(entriesBgmSrc?.trim());
+
+  /** 刷新/进入页后尽量自动播放（先直放，失败则静音起播再开声） */
+  const tryAutoplayBgm = useCallback(async () => {
+    const a = audioRef.current;
+    if (!a || !hasEntriesBgm) return;
+    if (!a.paused) return;
+
+    const playTry = () =>
+      a.play().then(
+        () => true,
+        () => false
+      );
+
+    if (await playTry()) return;
+
+    try {
+      a.muted = true;
+      if (await playTry()) {
+        a.muted = false;
+        return;
+      }
+    } finally {
+      a.muted = false;
+    }
+  }, [hasEntriesBgm]);
 
   const toggleBgm = useCallback(() => {
     const a = audioRef.current;
@@ -76,19 +89,41 @@ export default function StickyProfileHeader({
 
   useEffect(() => {
     if (!hasEntriesBgm) return;
-    const a = audioRef.current;
-    if (!a) return;
-    void a.play().catch(() => setBgmPlaying(false));
-  }, [hasEntriesBgm]);
+
+    const kick = () => {
+      void tryAutoplayBgm();
+    };
+
+    // 等 <audio> ref 挂上后再播；缓冲就绪 canplay 再试；刷新时 pageshow 再试
+    let raf0 = 0;
+    let raf1 = 0;
+    raf0 = requestAnimationFrame(() => {
+      raf1 = requestAnimationFrame(() => {
+        kick();
+        audioRef.current?.addEventListener("canplay", kick, { once: true });
+      });
+    });
+
+    const onPageShow = () => {
+      kick();
+    };
+    window.addEventListener("pageshow", onPageShow);
+
+    return () => {
+      cancelAnimationFrame(raf0);
+      cancelAnimationFrame(raf1);
+      window.removeEventListener("pageshow", onPageShow);
+      audioRef.current?.removeEventListener("canplay", kick);
+    };
+  }, [hasEntriesBgm, tryAutoplayBgm, entriesBgmSrc]);
 
   const runReturnToTop = useCallback(() => {
     if (typeof window === "undefined") return;
     const startY = window.scrollY;
-    // 如果页面没滚动但 virtualScroll 有值，直接重置 virtualScroll
-    if (startY <= 0) {
-      onReturnToTop?.();
-      return;
-    }
+    if (startY <= 0) return;
+
+    const HEADER_EXPANDED = 260;
+    const HEADER_COLLAPSED = 56;
 
     returnToTopPhaseRef.current = 1;
     setIsReturnToTopAnimating(true);
@@ -116,8 +151,6 @@ export default function StickyProfileHeader({
       } else {
         window.scrollTo(0, 0);
         setScrollY(0);
-        // 通知父组件重置 virtualScroll
-        onReturnToTop?.();
         returnToTopPhaseRef.current = 2;
         setIsHeaderExpanding(true);
 
@@ -129,7 +162,7 @@ export default function StickyProfileHeader({
           const p = Math.min(elapsed / EXPAND_MS, 1);
           const eased = easeOutCubic(p);
 
-          const h = HEADER_COLLAPSED_H + HEADER_COLLAPSE_RANGE * eased;
+          const h = HEADER_COLLAPSED + (HEADER_EXPANDED - HEADER_COLLAPSED) * eased;
           if (headerRef.current) {
             headerRef.current.style.height = `${h}px`;
           }
@@ -148,7 +181,7 @@ export default function StickyProfileHeader({
     }
 
     returnToTopRafRef.current = requestAnimationFrame(scrollTick);
-  }, [onReturnToTop]);
+  }, []);
 
   useEffect(() => {
     let scrollRaf = 0;
@@ -169,24 +202,21 @@ export default function StickyProfileHeader({
     };
   }, []);
 
-  // externalScrollY (entries 页的 virtualScroll) 上限只到 HEADER_COLLAPSE_RANGE=204，
-  // 小于 HEADER_COLLAPSE_AT=214，单独用它 isCollapsed 永远无法触发。
-  // 叠加 window.scrollY：virtualScroll 先吸收到 204，之后原生滚动继续累加，
-  // 总和越过 214 才进入吸顶 pill 态，保证收起后显示小头像 + 昵称。
-  const effectiveScrollY =
-    typeof externalScrollY === "number" ? externalScrollY + scrollY : scrollY;
-  const nearTop = effectiveScrollY < 28;
+  const HEADER_EXPANDED = 260;
+  const HEADER_COLLAPSED = 56;
+  const threshold = HEADER_EXPANDED - HEADER_COLLAPSED;
+  const COLLAPSE_AT = threshold + 10;
+  const nearTop = scrollY < 28;
   const isReturning = isReturnToTopAnimating;
   const signatureTrimmed = profile?.signature?.trim() ?? "";
   const hasSignature = signatureTrimmed.length > 0;
 
   const height = isReturning
-    ? HEADER_COLLAPSED_H
+    ? HEADER_COLLAPSED
     : nearTop
-      ? HEADER_EXPANDED_H
-      : Math.max(HEADER_COLLAPSED_H, HEADER_EXPANDED_H - effectiveScrollY);
-  const isCollapsed =
-    isReturning && !isHeaderExpanding ? true : effectiveScrollY >= HEADER_COLLAPSE_AT;
+      ? HEADER_EXPANDED
+      : Math.max(HEADER_COLLAPSED, HEADER_EXPANDED - scrollY);
+  const isCollapsed = isReturning && !isHeaderExpanding ? true : scrollY >= COLLAPSE_AT;
 
   const bgUrl = profile?.headerBg?.trim() || "/header-bg.png";
 
@@ -241,34 +271,34 @@ export default function StickyProfileHeader({
       />
       <div className="absolute inset-0 bg-black/50" />
       {isCollapsed && !isReturning && (
-        <button
-          type="button"
-          className="absolute inset-0 z-10 cursor-pointer"
-          onClick={runReturnToTop}
-          aria-label="回到顶部并展开"
-        />
+        <div className="absolute inset-0 z-10 flex items-stretch justify-center px-5">
+          <button
+            type="button"
+            className="h-full min-w-0 flex-1 cursor-pointer"
+            onClick={runReturnToTop}
+            aria-label="回到顶部并展开（左侧区域）"
+          />
+          <div className="pointer-events-none flex shrink-0 items-center gap-2 py-0">
+            <span className="pointer-events-auto">{renderAvatar("sm")}</span>
+            <Link
+              href="/"
+              className="pointer-events-auto inline-flex min-w-0 w-fit self-center"
+              aria-label="首页"
+            >
+              <p className="whitespace-nowrap text-base font-bold leading-tight text-white">
+                {profile?.name ?? "DailyRhapsody"}
+              </p>
+            </Link>
+          </div>
+          <button
+            type="button"
+            className="h-full min-w-0 flex-1 cursor-pointer"
+            onClick={runReturnToTop}
+            aria-label="回到顶部并展开（右侧区域）"
+          />
+        </div>
       )}
       <div className="relative flex h-full w-full flex-col justify-center px-5">
-        <div
-          className={`absolute inset-0 z-20 flex items-center justify-center px-5 ${
-            isCollapsed ? "pointer-events-auto" : "pointer-events-none"
-          }`}
-        >
-          <div
-            className={`inline-flex transition-[transform,opacity] duration-400 ease-out ${
-              isCollapsed ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
-            }`}
-          >
-            <div className="inline-flex max-w-full items-center gap-2">
-              <span className="shrink-0 leading-none">{renderAvatar("sm")}</span>
-              <Link href="/" className="inline-flex min-w-0 w-fit self-center" aria-label="首页">
-                <p className="whitespace-nowrap text-base font-bold leading-tight text-white">
-                  {profile?.name ?? "DailyRhapsody"}
-                </p>
-              </Link>
-            </div>
-          </div>
-        </div>
         <div
           className={`min-w-0 flex-1 transition-[transform,opacity] duration-400 ease-out ${
             isCollapsed
