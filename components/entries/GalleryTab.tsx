@@ -83,29 +83,51 @@ export function GalleryTab({
               {formatMomentRelative(m.createdAt)}
             </p>
             <div className={`grid ${galleryGridClass(n)} ${n <= 1 ? "" : "gap-0.5"}`}>
-              {sorted.map((media, idx) => (
-                <button
-                  key={`${media.url}-${idx}`}
-                  type="button"
-                  className={`relative w-full overflow-hidden rounded bg-zinc-100 dark:bg-zinc-800 ${
-                    n === 1 ? "aspect-auto max-h-[min(72vh,640px)]" : "aspect-square"
-                  }`}
-                  onClick={() =>
-                    onOpenLightbox({ urls, i: idx, lbKey: `${row.rowKey}-${idx}` })
-                  }
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={media.thumbUrl || media.url}
-                    alt=""
-                    className={`absolute inset-0 h-full w-full ${
-                      n === 1 ? "object-contain" : "object-cover"
-                    }`}
-                    loading="lazy"
-                    decoding="async"
-                  />
-                </button>
-              ))}
+              {sorted.map((media, idx) => {
+                // n===1：让 <img> 走自然流，按图片原始比例自撑高（封顶 72vh），
+                // 之前用 absolute + aspect-auto 会让父按钮高度坍成 0，肉眼就是一片空白。
+                // n>=2：网格强制方形（aspect-square），<img> 绝对定位填满。
+                if (n === 1) {
+                  return (
+                    <button
+                      key={`${media.url}-${idx}`}
+                      type="button"
+                      className="block w-full overflow-hidden rounded bg-zinc-100 dark:bg-zinc-800"
+                      onClick={() =>
+                        onOpenLightbox({ urls, i: idx, lbKey: `${row.rowKey}-${idx}` })
+                      }
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={media.thumbUrl || media.url}
+                        alt=""
+                        className="block h-auto max-h-[min(72vh,640px)] w-full object-contain"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    </button>
+                  );
+                }
+                return (
+                  <button
+                    key={`${media.url}-${idx}`}
+                    type="button"
+                    className="relative aspect-square w-full overflow-hidden rounded bg-zinc-100 dark:bg-zinc-800"
+                    onClick={() =>
+                      onOpenLightbox({ urls, i: idx, lbKey: `${row.rowKey}-${idx}` })
+                    }
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={media.thumbUrl || media.url}
+                      alt=""
+                      className="absolute inset-0 h-full w-full object-cover"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  </button>
+                );
+              })}
             </div>
           </article>
         );

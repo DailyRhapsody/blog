@@ -13,25 +13,27 @@ import { getSizeClass, legacyToMoment, PAGE_SIZE } from "@/components/entries/ut
 import type {
   Diary,
   GalleryTimelineRow,
-  PublicMoment,
 } from "@/components/entries/types";
 import { useProfile } from "@/hooks/useProfile";
 import { useAdminSession } from "@/hooks/useAdminSession";
 import { useGalleryLegacy } from "@/hooks/useGalleryLegacy";
+import { useGalleryMoments } from "@/hooks/useGalleryMoments";
+import { useTabSwipeNavigation } from "@/hooks/useTabSwipeNavigation";
 export default function EntriesPage() {
   const [items, setItems] = useState<Diary[]>([]);
   const [total, setTotal] = useState(0);
   const [tagCounts, setTagCounts] = useState<{ name: string; value: number }[]>([]);
   const [datesFromApi, setDatesFromApi] = useState<string[]>([]);
   const { items: galleryLegacy } = useGalleryLegacy();
-  const [galleryMoments, setGalleryMoments] = useState<PublicMoment[]>([]);
-  const [galleryOffset, setGalleryOffset] = useState(0);
-  const [galleryHasMore, setGalleryHasMore] = useState(true);
-  const [galleryLoading, setGalleryLoading] = useState(true);
-  const [galleryLoadingMore, setGalleryLoadingMore] = useState(false);
+  const [activeTopTab, setActiveTopTab] = useState(0); // 0=博客, 1=画廊
+  const {
+    moments: galleryMoments,
+    hasMore: galleryHasMore,
+    loading: galleryLoading,
+    loadingMore: galleryLoadingMore,
+    sentinelRef: gallerySentinelRef,
+  } = useGalleryMoments({ active: activeTopTab === 1 });
   const [lightbox, setLightbox] = useState<{ urls: string[]; i: number; lbKey: string } | null>(null);
-  const galleryLoadLock = useRef(false);
-  const gallerySentinelRef = useRef<HTMLDivElement>(null);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const profile = useProfile();
   const { isAdmin: isAdminSession } = useAdminSession();
@@ -39,7 +41,6 @@ export default function EntriesPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [entriesFlipped, setEntriesFlipped] = useState(false);
   const [, setScrollYPos] = useState(0);
-  const [activeTopTab, setActiveTopTab] = useState(0); // 0=博客, 1=画廊
   const activeTopTabRef = useRef(0);
   const [eggPullY, setEggPullY] = useState(0);
   const [isRebounding, setIsRebounding] = useState(false);
@@ -70,39 +71,6 @@ export default function EntriesPage() {
     hasMoreRef.current = hasMore;
     totalPostsRef.current = totalPosts;
   }, [hasMore, totalPosts]);
-
-  /* ── 画廊：加载 moments 分页 ── */
-  const loadGalleryPage = useCallback(async (fromOffset: number, replace: boolean) => {
-    if (replace) setGalleryLoading(true);
-    else {
-      if (galleryLoadLock.current) return;
-      galleryLoadLock.current = true;
-      setGalleryLoadingMore(true);
-    }
-    try {
-      const res = await fetchWithTimeout(`/api/moments?limit=8&offset=${fromOffset}`, { credentials: "include" });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        if (replace) setGalleryMoments([]);
-        setGalleryHasMore(false);
-        return;
-      }
-      const next: PublicMoment[] = Array.isArray(data.items) ? data.items : [];
-      setGalleryHasMore(!!data.hasMore);
-      setGalleryOffset(typeof data.nextOffset === "number" ? data.nextOffset : fromOffset + next.length);
-      if (replace) setGalleryMoments(next);
-      else setGalleryMoments((prev) => [...prev, ...next]);
-    } catch {
-      if (replace) setGalleryMoments([]);
-      setGalleryHasMore(false);
-    } finally {
-      setGalleryLoading(false);
-      setGalleryLoadingMore(false);
-      if (!replace) galleryLoadLock.current = false;
-    }
-  }, []);
-
-  useEffect(() => { void loadGalleryPage(0, true); }, [loadGalleryPage]);
 
   const galleryTimeline = useMemo(() => {
     const legacyVisible = galleryLegacy.filter((g) => g?.images?.length && (isAdminSession || g.isPublic !== false));
@@ -141,22 +109,6 @@ export default function EntriesPage() {
     }
     return imgs.slice(0, 4);
   }, [galleryTimeline]);
-
-  /* ── 画廊无限滚动 ── */
-  useEffect(() => {
-    if (activeTopTab !== 1) return;
-    const el = gallerySentinelRef.current;
-    if (!el || !galleryHasMore || galleryLoading || galleryLoadingMore) return;
-    const obs = new IntersectionObserver(
-      (entries) => {
-        if (!entries[0]?.isIntersecting || galleryLoadingMore) return;
-        void loadGalleryPage(galleryOffset, false);
-      },
-      { rootMargin: "240px", threshold: 0 },
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, [activeTopTab, galleryHasMore, galleryLoading, galleryLoadingMore, galleryOffset, loadGalleryPage]);
 
   useEffect(() => {
     return () => {
@@ -268,70 +220,8 @@ export default function EntriesPage() {
   /* ── activeTopTab ref 同步 ── */
   useEffect(() => { activeTopTabRef.current = activeTopTab; }, [activeTopTab]);
 
-  /* ── 全局：禁用浏览器左右滑动导航 + 水平滚轮切换 tab ── */
-  useEffect(() => {
-    let accum = 0;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    function onWheel(e: WheelEvent) {
-      if (Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 2) {
-        e.preventDefault();
-        accum += e.deltaX;
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(() => {
-          if (Math.abs(accum) > 30) {
-            setActiveTopTab((prev) =>
-              accum > 0 ? Math.min(prev + 1, 1) : Math.max(prev - 1, 0),
-            );
-          }
-          accum = 0;
-        }, 80);
-      }
-    }
-
-    /* 全局 touch：页面任意位置左右滑动切 tab */
-    let gStartX = 0, gStartY = 0;
-    let gIsHz: boolean | null = null;
-
-    function onGTouchStart(e: TouchEvent) {
-      gStartX = e.touches[0].clientX;
-      gStartY = e.touches[0].clientY;
-      gIsHz = null;
-    }
-    function onGTouchMove(e: TouchEvent) {
-      if (gIsHz === false) return;
-      const dx = e.touches[0].clientX - gStartX;
-      const dy = e.touches[0].clientY - gStartY;
-      if (gIsHz === null && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
-        gIsHz = Math.abs(dx) > Math.abs(dy);
-      }
-      if (gIsHz) e.preventDefault();
-    }
-    function onGTouchEnd(e: TouchEvent) {
-      if (!gIsHz) return;
-      const dx = (e.changedTouches[0]?.clientX ?? gStartX) - gStartX;
-      if (Math.abs(dx) > 50) {
-        setActiveTopTab((prev) =>
-          dx < 0 ? Math.min(prev + 1, 1) : Math.max(prev - 1, 0),
-        );
-      }
-    }
-
-    document.addEventListener("wheel", onWheel, { passive: false });
-    document.addEventListener("touchstart", onGTouchStart, { passive: true });
-    document.addEventListener("touchmove", onGTouchMove, { passive: false });
-    document.addEventListener("touchend", onGTouchEnd);
-    document.documentElement.style.overscrollBehaviorX = "none";
-
-    return () => {
-      document.removeEventListener("wheel", onWheel);
-      document.removeEventListener("touchstart", onGTouchStart);
-      document.removeEventListener("touchmove", onGTouchMove);
-      document.removeEventListener("touchend", onGTouchEnd);
-      document.documentElement.style.overscrollBehaviorX = "";
-      if (timer) clearTimeout(timer);
-    };
-  }, []);
+  /* ── 横向滚轮 / 触屏左右滑动切 tab + 屏蔽浏览器自带的左右回退 ── */
+  useTabSwipeNavigation(setActiveTopTab, { min: 0, max: 1 });
 
   useEffect(() => {
     const el = sentinelRef.current;
