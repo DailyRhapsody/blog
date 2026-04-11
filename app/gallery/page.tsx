@@ -134,6 +134,15 @@ function MomentCard({
               }`}
               loading="lazy"
               decoding="async"
+              onError={(e) => {
+                const img = e.currentTarget;
+                // 缩略图失败时回退到原图，再失败则隐藏避免破图
+                if (m.thumbUrl && img.src !== m.url) {
+                  img.src = m.url;
+                } else {
+                  img.style.visibility = "hidden";
+                }
+              }}
             />
           </button>
         ))}
@@ -188,7 +197,9 @@ export default function GalleryPage() {
       const res = await fetch(`/api/moments?limit=8&offset=${fromOffset}`, {
         credentials: "include",
       });
-      const data = await res.json().catch(() => ({}));
+      const raw: unknown = await res.json().catch(() => null);
+      const data: Record<string, unknown> =
+        raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
       if (!res.ok) {
         if (replace) setMomentItems([]);
         setHasMore(false);
@@ -202,9 +213,15 @@ export default function GalleryPage() {
         return;
       }
       setLoadError(null);
-      const next: PublicMoment[] = Array.isArray(data.items) ? data.items : [];
-      setHasMore(!!data.hasMore);
-      setOffset(typeof data.nextOffset === "number" ? data.nextOffset : fromOffset + next.length);
+      const next: PublicMoment[] = Array.isArray(data.items)
+        ? (data.items as PublicMoment[])
+        : [];
+      setHasMore(data.hasMore === true);
+      setOffset(
+        typeof data.nextOffset === "number"
+          ? data.nextOffset
+          : fromOffset + next.length
+      );
       if (replace) setMomentItems(next);
       else setMomentItems((prev) => [...prev, ...next]);
     } catch {

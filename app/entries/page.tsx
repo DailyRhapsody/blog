@@ -644,9 +644,9 @@ function EntryCard({
       </div>
       {(item.images ?? []).length > 0 && (
         <div className="flex gap-1 overflow-hidden rounded-xl">
-          {(item.images ?? []).slice(0, 3).map((src) => (
+          {(item.images ?? []).slice(0, 3).map((src, idx) => (
             <div
-              key={src}
+              key={`${src}-${idx}`}
               className="relative h-24 w-24 flex-shrink-0 overflow-hidden rounded-lg bg-zinc-200 dark:bg-zinc-800 sm:h-20 sm:w-20"
             >
               <Image

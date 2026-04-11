@@ -100,13 +100,20 @@ export default function StickyProfileHeader({
       void tryAutoplayBgm();
     };
 
+    // 记录真正绑定 canplay 的元素，避免清理时 ref 已变化导致监听器残留
+    let canplayBound: HTMLAudioElement | null = null;
+
     // 等 <audio> ref 挂上后再播；缓冲就绪 canplay 再试；刷新时 pageshow 再试
     let raf0 = 0;
     let raf1 = 0;
     raf0 = requestAnimationFrame(() => {
       raf1 = requestAnimationFrame(() => {
         kick();
-        audioRef.current?.addEventListener("canplay", kick, { once: true });
+        const el = audioRef.current;
+        if (el) {
+          canplayBound = el;
+          el.addEventListener("canplay", kick, { once: true });
+        }
       });
     });
 
@@ -119,7 +126,7 @@ export default function StickyProfileHeader({
       cancelAnimationFrame(raf0);
       cancelAnimationFrame(raf1);
       window.removeEventListener("pageshow", onPageShow);
-      audioRef.current?.removeEventListener("canplay", kick);
+      canplayBound?.removeEventListener("canplay", kick);
     };
   }, [hasEntriesBgm, tryAutoplayBgm, entriesBgmSrc]);
 

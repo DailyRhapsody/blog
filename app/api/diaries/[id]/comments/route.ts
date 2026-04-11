@@ -41,11 +41,19 @@ export async function POST(
       NextResponse.json({ error: "Invalid id" }, { status: 400 })
     );
   }
+  const lenHeader = req.headers.get("content-length");
+  if (lenHeader && Number(lenHeader) > 8 * 1024) {
+    return withAntiScrapeHeaders(
+      NextResponse.json({ error: "Payload too large" }, { status: 413 })
+    );
+  }
   let body: { author?: string; content?: string };
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+    return withAntiScrapeHeaders(
+      NextResponse.json({ error: "Invalid body" }, { status: 400 })
+    );
   }
   const author = (body.author ?? "").trim().slice(0, 64) || "匿名";
   const content = (body.content ?? "").trim().slice(0, 2000);

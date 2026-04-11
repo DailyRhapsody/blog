@@ -31,9 +31,11 @@ export function MomentLightbox({
   }, [onKey]);
 
   useEffect(() => {
-    if (open) document.body.style.overflow = "hidden";
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = "";
+      document.body.style.overflow = prev;
     };
   }, [open]);
 
