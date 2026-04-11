@@ -47,31 +47,6 @@ export default function StickyProfileHeader({
 
   const hasEntriesBgm = Boolean(entriesBgmSrc?.trim());
 
-  /** 刷新/进入页后尽量自动播放（先直放，失败则静音起播再开声） */
-  const tryAutoplayBgm = useCallback(async () => {
-    const a = audioRef.current;
-    if (!a || !hasEntriesBgm) return;
-    if (!a.paused) return;
-
-    const playTry = () =>
-      a.play().then(
-        () => true,
-        () => false
-      );
-
-    if (await playTry()) return;
-
-    try {
-      a.muted = true;
-      if (await playTry()) {
-        a.muted = false;
-        return;
-      }
-    } finally {
-      a.muted = false;
-    }
-  }, [hasEntriesBgm]);
-
   const toggleBgm = useCallback(() => {
     const a = audioRef.current;
     if (!a || !hasEntriesBgm) return;
@@ -101,40 +76,10 @@ export default function StickyProfileHeader({
 
   useEffect(() => {
     if (!hasEntriesBgm) return;
-
-    const kick = () => {
-      void tryAutoplayBgm();
-    };
-
-    // 记录真正绑定 canplay 的元素，避免清理时 ref 已变化导致监听器残留
-    let canplayBound: HTMLAudioElement | null = null;
-
-    // 等 <audio> ref 挂上后再播；缓冲就绪 canplay 再试；刷新时 pageshow 再试
-    let raf0 = 0;
-    let raf1 = 0;
-    raf0 = requestAnimationFrame(() => {
-      raf1 = requestAnimationFrame(() => {
-        kick();
-        const el = audioRef.current;
-        if (el) {
-          canplayBound = el;
-          el.addEventListener("canplay", kick, { once: true });
-        }
-      });
-    });
-
-    const onPageShow = () => {
-      kick();
-    };
-    window.addEventListener("pageshow", onPageShow);
-
-    return () => {
-      cancelAnimationFrame(raf0);
-      cancelAnimationFrame(raf1);
-      window.removeEventListener("pageshow", onPageShow);
-      canplayBound?.removeEventListener("canplay", kick);
-    };
-  }, [hasEntriesBgm, tryAutoplayBgm, entriesBgmSrc]);
+    const a = audioRef.current;
+    if (!a) return;
+    void a.play().catch(() => setBgmPlaying(false));
+  }, [hasEntriesBgm]);
 
   const runReturnToTop = useCallback(() => {
     if (typeof window === "undefined") return;
