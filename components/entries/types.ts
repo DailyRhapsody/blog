@@ -45,10 +45,3 @@ export type GalleryTimelineRow = {
   createdAt: string;
   moment: PublicMoment;
 };
-
-export type Profile = {
-  name: string;
-  signature: string;
-  avatar: string;
-  headerBg: string;
-};

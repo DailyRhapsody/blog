@@ -12,19 +12,19 @@ import { GalleryTab } from "@/components/entries/GalleryTab";
 import { getSizeClass, legacyToMoment, PAGE_SIZE } from "@/components/entries/utils";
 import type {
   Diary,
-  GalleryLegacyItem,
   GalleryTimelineRow,
-  Profile,
   PublicMoment,
 } from "@/components/entries/types";
+import { useProfile } from "@/hooks/useProfile";
+import { useAdminSession } from "@/hooks/useAdminSession";
+import { useGalleryLegacy } from "@/hooks/useGalleryLegacy";
 
 export default function EntriesPage() {
   const [items, setItems] = useState<Diary[]>([]);
   const [total, setTotal] = useState(0);
   const [tagCounts, setTagCounts] = useState<{ name: string; value: number }[]>([]);
   const [datesFromApi, setDatesFromApi] = useState<string[]>([]);
-  const [galleryThumbs, setGalleryThumbs] = useState<string[]>([]);
-  const [galleryLegacy, setGalleryLegacy] = useState<GalleryLegacyItem[]>([]);
+  const { items: galleryLegacy } = useGalleryLegacy();
   const [galleryMoments, setGalleryMoments] = useState<PublicMoment[]>([]);
   const [galleryOffset, setGalleryOffset] = useState(0);
   const [galleryHasMore, setGalleryHasMore] = useState(true);
@@ -34,8 +34,8 @@ export default function EntriesPage() {
   const galleryLoadLock = useRef(false);
   const gallerySentinelRef = useRef<HTMLDivElement>(null);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [isAdminSession, setIsAdminSession] = useState(false);
+  const profile = useProfile();
+  const { isAdmin: isAdminSession } = useAdminSession();
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [entriesFlipped, setEntriesFlipped] = useState(false);
@@ -80,25 +80,18 @@ export default function EntriesPage() {
     totalPostsRef.current = totalPosts;
   }, [hasMore, totalPosts]);
 
-  useEffect(() => {
-    fetchWithTimeout("/api/gallery")
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data) => {
-        const list = Array.isArray(data) ? data : [];
-        const imgs: string[] = [];
-        for (const item of list) {
-          const arr = Array.isArray(item?.images) ? item.images : [];
-          for (const src of arr) {
-            if (typeof src === "string" && src.trim()) imgs.push(src.trim());
-            if (imgs.length >= 4) break;
-          }
-          if (imgs.length >= 4) break;
-        }
-        setGalleryThumbs(imgs.slice(0, 4));
-        setGalleryLegacy(list);
-      })
-      .catch(() => { setGalleryThumbs([]); setGalleryLegacy([]); });
-  }, []);
+  const galleryThumbs = useMemo(() => {
+    const imgs: string[] = [];
+    for (const item of galleryLegacy) {
+      const arr = Array.isArray(item?.images) ? item.images : [];
+      for (const src of arr) {
+        if (typeof src === "string" && src.trim()) imgs.push(src.trim());
+        if (imgs.length >= 4) break;
+      }
+      if (imgs.length >= 4) break;
+    }
+    return imgs.slice(0, 4);
+  }, [galleryLegacy]);
 
   /* ── 画廊：加载 moments 分页 ── */
   const loadGalleryPage = useCallback(async (fromOffset: number, replace: boolean) => {
@@ -235,22 +228,6 @@ export default function EntriesPage() {
         setLoadingMore(false);
       });
   }, [loading, items, total, hasMore, loadingMore, selectedTag, loadPage]);
-
-  useEffect(() => {
-    fetchWithTimeout("/api/profile")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => setProfile(data ?? null))
-      .catch(() => setProfile(null));
-  }, []);
-
-  useEffect(() => {
-    fetchWithTimeout("/api/auth/session")
-      .then((res) => (res.ok ? res.json() : { ok: false }))
-      .then((data: { ok?: boolean }) => {
-        setIsAdminSession(!!data?.ok);
-      })
-      .catch(() => setIsAdminSession(false));
-  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => setEntriesFlipped(true), 80);

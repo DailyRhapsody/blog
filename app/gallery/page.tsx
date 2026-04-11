@@ -3,13 +3,12 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import RainbowBrushTrail from "@/components/RainbowBrushTrail";
-import StickyProfileHeader, {
-  type StickyProfileHeaderData,
-} from "@/components/StickyProfileHeader";
+import StickyProfileHeader from "@/components/StickyProfileHeader";
 import { formatMomentRelative } from "@/lib/moment-relative";
 import { MomentLightbox } from "./MomentLightbox";
-
-type Profile = StickyProfileHeaderData;
+import { useProfile } from "@/hooks/useProfile";
+import { useAdminSession } from "@/hooks/useAdminSession";
+import { useGalleryLegacy } from "@/hooks/useGalleryLegacy";
 
 type PublicMedia = {
   url: string;
@@ -34,19 +33,6 @@ type GalleryLegacyItem = {
   isPublic?: boolean;
   images: string[];
 };
-
-function useIsAdmin() {
-  const [ok, setOk] = useState(false);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    fetch("/api/auth/session", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : { ok: false }))
-      .then((d) => setOk(!!d?.ok))
-      .catch(() => setOk(false))
-      .finally(() => setLoading(false));
-  }, []);
-  return { ok, loading };
-}
 
 function gridClass(n: number) {
   if (n <= 1) return "grid-cols-1";
@@ -154,9 +140,9 @@ function MomentCard({
 type TimelineRow = { rowKey: string; createdAt: string; moment: PublicMoment };
 
 export default function GalleryPage() {
-  const { ok: isAdmin, loading: adminLoading } = useIsAdmin();
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [legacyItems, setLegacyItems] = useState<GalleryLegacyItem[]>([]);
+  const { isAdmin, loading: adminLoading } = useAdminSession();
+  const profile = useProfile();
+  const { items: legacyItems, refresh: refreshLegacy } = useGalleryLegacy();
   const [momentItems, setMomentItems] = useState<PublicMoment[]>([]);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
@@ -171,20 +157,6 @@ export default function GalleryPage() {
   } | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadMoreLock = useRef(false);
-
-  useEffect(() => {
-    fetch("/api/profile", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((p: Profile | null) => setProfile(p))
-      .catch(() => setProfile(null));
-  }, []);
-
-  useEffect(() => {
-    fetch("/api/gallery", { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data) => setLegacyItems(Array.isArray(data) ? data : []))
-      .catch(() => setLegacyItems([]));
-  }, []);
 
   const loadMomentsPage = useCallback(async (fromOffset: number, replace: boolean) => {
     if (replace) setLoading(true);
@@ -266,12 +238,9 @@ export default function GalleryPage() {
     setRefreshing(true);
     setOffset(0);
     setHasMore(true);
-    void fetch("/api/gallery", { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data) => setLegacyItems(Array.isArray(data) ? data : []))
-      .catch(() => setLegacyItems([]));
+    refreshLegacy();
     void loadMomentsPage(0, true);
-  }, [loadMomentsPage]);
+  }, [loadMomentsPage, refreshLegacy]);
 
   useEffect(() => {
     const el = sentinelRef.current;
