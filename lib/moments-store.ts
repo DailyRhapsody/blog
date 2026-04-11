@@ -63,6 +63,11 @@ function getPool(): Pool {
     pool = new Pool({
       connectionString: DATABASE_URL,
       ssl,
+      // 显式配置上限与超时，避免 serverless 并发场景连接耗尽 / 长事务卡死
+      max: 10,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 8_000,
+      statement_timeout: 15_000,
     });
   }
   return pool;

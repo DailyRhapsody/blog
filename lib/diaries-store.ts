@@ -46,6 +46,11 @@ function getPool(): Pool {
     pool = new Pool({
       connectionString: DATABASE_URL,
       ssl,
+      // 显式配置上限与超时，避免 serverless 并发场景连接耗尽 / 长事务卡死
+      max: 10,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 8_000,
+      statement_timeout: 15_000,
     });
   }
   return pool;
@@ -179,12 +184,22 @@ export async function saveDiaries(diaries: Diary[]): Promise<void> {
     const client = await getPool().connect();
     try {
       await client.query("BEGIN");
-      await client.query("DELETE FROM diaries");
+      // 1) UPSERT 所有传入的行（避免之前 DELETE 全表 + 逐行 INSERT 的全量重写）
       for (const d of diaries) {
         await client.query(
           `
             INSERT INTO diaries (id, date, published_at, pinned, is_public, summary, location, tags, images, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+              date = EXCLUDED.date,
+              published_at = EXCLUDED.published_at,
+              pinned = EXCLUDED.pinned,
+              is_public = EXCLUDED.is_public,
+              summary = EXCLUDED.summary,
+              location = EXCLUDED.location,
+              tags = EXCLUDED.tags,
+              images = EXCLUDED.images,
+              updated_at = NOW()
           `,
           [
             d.id,
@@ -198,6 +213,16 @@ export async function saveDiaries(diaries: Diary[]): Promise<void> {
             JSON.stringify(d.images ?? []),
           ]
         );
+      }
+      // 2) 删除新列表中不存在的旧行（保持与传入快照一致）
+      const ids = diaries.map((d) => d.id);
+      if (ids.length > 0) {
+        await client.query(
+          `DELETE FROM diaries WHERE id <> ALL($1::bigint[])`,
+          [ids]
+        );
+      } else {
+        await client.query(`DELETE FROM diaries`);
       }
       await client.query("COMMIT");
       return;

@@ -11,6 +11,7 @@ import RainbowBrushTrail from "@/components/RainbowBrushTrail";
 import StickyProfileHeader from "@/components/StickyProfileHeader";
 import { formatMomentRelative } from "@/lib/moment-relative";
 import { MomentLightbox } from "@/app/gallery/MomentLightbox";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 
 type Diary = {
   id: number;
@@ -304,7 +305,7 @@ function EntryComments({
   useEffect(() => {
     if (!open) return;
     setLoading(true);
-    fetch(`/api/diaries/${diaryId}/comments`)
+    fetchWithTimeout(`/api/diaries/${diaryId}/comments`)
       .then((r) => {
         if (!r.ok) throw new Error(String(r.status));
         return r.json();
@@ -321,7 +322,7 @@ function EntryComments({
     if (!c) return;
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/diaries/${diaryId}/comments`, {
+      const res = await fetchWithTimeout(`/api/diaries/${diaryId}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ author: a, content: c }),
@@ -876,7 +877,7 @@ export default function EntriesPage() {
   }, [hasMore, totalPosts]);
 
   useEffect(() => {
-    fetch("/api/gallery")
+    fetchWithTimeout("/api/gallery")
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => {
         const list = Array.isArray(data) ? data : [];
@@ -904,7 +905,7 @@ export default function EntriesPage() {
       setGalleryLoadingMore(true);
     }
     try {
-      const res = await fetch(`/api/moments?limit=8&offset=${fromOffset}`, { credentials: "include" });
+      const res = await fetchWithTimeout(`/api/moments?limit=8&offset=${fromOffset}`, { credentials: "include" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (replace) setGalleryMoments([]);
@@ -970,7 +971,7 @@ export default function EntriesPage() {
         offset: String(offset),
       });
       if (tag) params.set("tag", tag);
-      return fetch(`/api/diaries?${params}`)
+      return fetchWithTimeout(`/api/diaries?${params}`)
         .then((res) => {
           if (!res.ok) throw new Error(String(res.status));
           return res.json();
@@ -1032,14 +1033,14 @@ export default function EntriesPage() {
   }, [loading, items, total, hasMore, loadingMore, selectedTag, loadPage]);
 
   useEffect(() => {
-    fetch("/api/profile")
+    fetchWithTimeout("/api/profile")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => setProfile(data ?? null))
       .catch(() => setProfile(null));
   }, []);
 
   useEffect(() => {
-    fetch("/api/auth/session")
+    fetchWithTimeout("/api/auth/session")
       .then((res) => (res.ok ? res.json() : { ok: false }))
       .then((data: { ok?: boolean }) => {
         setIsAdminSession(!!data?.ok);

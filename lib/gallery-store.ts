@@ -39,6 +39,10 @@ function getPool(): Pool {
     pool = new Pool({
       connectionString: DATABASE_URL,
       ssl,
+      max: 10,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 8_000,
+      statement_timeout: 15_000,
     });
   }
   return pool;
