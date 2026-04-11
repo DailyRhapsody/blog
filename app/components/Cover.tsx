@@ -121,7 +121,7 @@ export default function Cover() {
           </Link>
           <span className="text-white/50" aria-hidden>·</span>
           <Link
-            href="/gallery"
+            href="/entries?tab=gallery"
             className="rounded transition-opacity duration-200 ease-out hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-transparent"
           >
             Gallery

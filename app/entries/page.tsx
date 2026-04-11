@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import RainbowBrushTrail from "@/components/RainbowBrushTrail";
 import StickyProfileHeader from "@/components/StickyProfileHeader";
-import { MomentLightbox } from "@/app/gallery/MomentLightbox";
+import { MomentLightbox } from "@/components/entries/MomentLightbox";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { CalendarHeatmap } from "@/components/entries/CalendarHeatmap";
 import { EntryCard } from "@/components/entries/EntryCard";
@@ -71,19 +71,6 @@ export default function EntriesPage() {
     totalPostsRef.current = totalPosts;
   }, [hasMore, totalPosts]);
 
-  const galleryThumbs = useMemo(() => {
-    const imgs: string[] = [];
-    for (const item of galleryLegacy) {
-      const arr = Array.isArray(item?.images) ? item.images : [];
-      for (const src of arr) {
-        if (typeof src === "string" && src.trim()) imgs.push(src.trim());
-        if (imgs.length >= 4) break;
-      }
-      if (imgs.length >= 4) break;
-    }
-    return imgs.slice(0, 4);
-  }, [galleryLegacy]);
-
   /* ── 画廊：加载 moments 分页 ── */
   const loadGalleryPage = useCallback(async (fromOffset: number, replace: boolean) => {
     if (replace) setGalleryLoading(true);
@@ -130,6 +117,31 @@ export default function EntriesPage() {
     );
   }, [galleryLegacy, galleryMoments, isAdminSession]);
 
+  const galleryThumbs = useMemo(() => {
+    // 既要兼容老的 /api/gallery（galleryLegacy），也要展示新的 moments（galleryMoments）。
+    // 后台 /admin/gallery 是 POST /api/moments，老的只读 /api/gallery 的话新图永远拉不到。
+    // galleryTimeline 已经把两边按时间合并好了，从它取最近 4 张缩略图。
+    const imgs: string[] = [];
+    const pushIfValid = (raw: unknown) => {
+      if (typeof raw !== "string") return;
+      const s = raw.trim();
+      if (!s) return;
+      imgs.push(s);
+    };
+    for (const row of galleryTimeline) {
+      const m = row?.moment;
+      if (!m || !Array.isArray(m.media)) continue;
+      for (const md of m.media) {
+        const isImage = (md?.mediaType ?? "").startsWith("image/");
+        // 视频也允许把 thumbUrl 当封面缩略图（视频本身不能 <Image fill> 渲染）
+        pushIfValid(md?.thumbUrl || (isImage ? md?.url : ""));
+        if (imgs.length >= 4) break;
+      }
+      if (imgs.length >= 4) break;
+    }
+    return imgs.slice(0, 4);
+  }, [galleryTimeline]);
+
   /* ── 画廊无限滚动 ── */
   useEffect(() => {
     if (activeTopTab !== 1) return;
@@ -150,6 +162,16 @@ export default function EntriesPage() {
     return () => {
       document.body.style.overflow = "";
     };
+  }, []);
+
+  /* ── 读取 ?tab=gallery 初始化顶部 tab，让封面 Gallery 链接能直接落到画廊卡上 ── */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("tab") === "gallery") {
+      setActiveTopTab(1);
+      activeTopTabRef.current = 1;
+    }
   }, []);
 
   const loadPage = useCallback(
@@ -486,8 +508,7 @@ export default function EntriesPage() {
               onClick={() => setActiveTopTab(0)}
               className={`inline-flex h-[148px] w-[168px] shrink-0 flex-col items-start justify-center rounded-xl border border-zinc-200 bg-white/80 px-5 shadow-sm transition-apple dark:border-zinc-700 dark:bg-zinc-800/80 ${activeTopTab === 0 ? "ring-2 ring-inset ring-zinc-400 dark:ring-zinc-500" : "opacity-60"}`}
             >
-              <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">博客</p>
-              <p className="mt-2 text-2xl font-bold text-zinc-900 dark:text-zinc-50">{totalPosts}</p>
+              <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">{totalPosts}</p>
               <p className="text-[0.7rem] text-zinc-500 dark:text-zinc-400">篇文章</p>
               <p className="mt-1.5 text-[0.7rem] text-zinc-400 dark:text-zinc-500">
                 本月 {thisMonthPostCount} 篇更新

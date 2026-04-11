@@ -59,7 +59,6 @@ function isGateIssuingPage(pathname: string, method: string): boolean {
     pathname === "/" ||
     pathname === "/entries" ||
     pathname === "/the-moment" ||
-    pathname === "/gallery" ||
     pathname === "/about"
   );
 }
@@ -219,7 +218,6 @@ export const config = {
     "/",
     "/entries",
     "/the-moment",
-    "/gallery",
     "/about",
   ],
 };
