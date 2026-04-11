@@ -21,19 +21,11 @@ function safeStringEqual(a: string, b: string): boolean {
 }
 
 export async function POST(req: Request) {
-  // 登陆是"救济入口"：必须让管理员在自己 IP 已经触发违规甚至被封的状态下
-  // 也能顺利登陆。因此：
-  //  - skipViolationRecord=true：失败的校验不能再给本 IP 加违规计数
-  //  - checkSecFetch=false：部分浏览器 / WebView / iOS Safari 在老版本上
-  //    不发 Sec-Fetch-Site，这是正常合法请求；登陆仍保留 Origin 校验来挡跨站
-  //  - rate limit 照常工作（limit=12 / 15min）防暴力破解
   const blocked = await guardApiRequest(req, {
     scope: "auth:login",
     limit: 12,
     windowMs: 900_000,
     blockSuspicious: false,
-    checkSecFetch: false,
-    skipViolationRecord: true,
   });
   if (blocked) return blocked;
 
