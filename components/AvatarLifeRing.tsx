@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 /** 1994.10.21 早上 5:05，东八区 */
@@ -60,9 +60,13 @@ export default function AvatarLifeRing({
   const r = outer / 2 - stroke / 2 - 1;
   const c = 2 * Math.PI * r;
 
-  // 挂载时一次性计算 animation-delay，避免每次渲染值变化导致动画重启卡顿
-  const [spinDelay] = useState(() =>
-    spinStartTime > 0 ? -(Date.now() - spinStartTime) : 0,
+  // 仅在 spinStartTime 变化时重算一次（音乐开始播放那一刻），
+  // 之后保持稳定，不会因其他 re-render 导致动画重启。
+  // 两个头像实例（lg 展开 / sm 收缩）用同一个 spinStartTime，
+  // 算出的负 delay 让它们对齐到同一旋转角度。
+  const spinDelay = useMemo(
+    () => (spinStartTime > 0 ? -(Date.now() - spinStartTime) : 0),
+    [spinStartTime],
   );
 
   const [nowMs, setNowMs] = useState(0);
