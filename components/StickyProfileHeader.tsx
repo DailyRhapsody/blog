@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import AvatarLifeRing from "@/components/AvatarLifeRing";
 
 export type StickyProfileHeaderData = {
@@ -26,12 +27,13 @@ export default function StickyProfileHeader({
 }) {
   const [scrollY, setScrollY] = useState(0);
   const [isReturnToTopAnimating, setIsReturnToTopAnimating] = useState(false);
-  const [isHeaderExpanding, setIsHeaderExpanding] = useState(false);
   const [bgmPlaying, setBgmPlaying] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const returnToTopPhaseRef = useRef<0 | 1 | 2>(0);
   const returnToTopRafRef = useRef<number>(0);
+  const collapsedBarRef = useRef<HTMLDivElement>(null);
+  const expandedContentRef = useRef<HTMLDivElement>(null);
 
   const hasEntriesBgm = Boolean(entriesBgmSrc?.trim());
 
@@ -141,60 +143,108 @@ export default function StickyProfileHeader({
 
   const runReturnToTop = useCallback(() => {
     if (typeof window === "undefined") return;
+    if (returnToTopPhaseRef.current !== 0) return;
     const startY = window.scrollY;
     if (startY <= 0) return;
 
     const HEADER_EXPANDED = 260;
     const HEADER_COLLAPSED = 56;
+    const header = headerRef.current;
+    if (!header) return;
 
     returnToTopPhaseRef.current = 1;
-    setIsReturnToTopAnimating(true);
+
+    // Kill CSS transitions — rAF drives everything
+    header.style.transition = "none";
+    document.documentElement.style.overflowAnchor = "none";
+    const collapsedEl = collapsedBarRef.current;
+    const expandedEl = expandedContentRef.current;
+    if (collapsedEl) collapsedEl.style.transition = "none";
+    if (expandedEl) {
+      expandedEl.style.transition = "none";
+      expandedEl.style.opacity = "0";
+      expandedEl.style.transform = "translateY(4px)";
+    }
+
+    flushSync(() => {
+      setIsReturnToTopAnimating(true);
+    });
 
     const scrollDuration = Math.min(
       1200,
       300 + 180 * Math.log(1 + startY / 200),
     );
-
     const startT = performance.now();
 
     function easeOutCubic(x: number) {
       return 1 - (1 - x) ** 3;
     }
 
+    // Phase 1: scroll to top only (no height changes — scrollTo works reliably)
     function scrollTick(now: number) {
       const elapsed = now - startT;
-      const progress = Math.min(elapsed / scrollDuration, 1);
+      const progress = Math.max(0, Math.min(elapsed / scrollDuration, 1));
       const eased = easeOutCubic(progress);
 
-      window.scrollTo(0, Math.round(startY * (1 - eased)));
+      window.scrollTo({ top: Math.round(startY * (1 - eased)), behavior: "instant" });
 
       if (progress < 1) {
         returnToTopRafRef.current = requestAnimationFrame(scrollTick);
       } else {
-        window.scrollTo(0, 0);
-        setScrollY(0);
-        returnToTopPhaseRef.current = 2;
-        setIsHeaderExpanding(true);
+        window.scrollTo({ top: 0, behavior: "instant" });
 
+        // Phase 2: expand header + crossfade (no scrollTo — overflow-anchor:none prevents drift)
+        returnToTopPhaseRef.current = 2;
         const EXPAND_MS = 400;
         const expandStart = performance.now();
 
         function expandTick(now: number) {
           const elapsed = now - expandStart;
-          const p = Math.min(elapsed / EXPAND_MS, 1);
+          const p = Math.max(0, Math.min(elapsed / EXPAND_MS, 1));
           const eased = easeOutCubic(p);
 
           const h = HEADER_COLLAPSED + (HEADER_EXPANDED - HEADER_COLLAPSED) * eased;
-          if (headerRef.current) {
-            headerRef.current.style.height = `${h}px`;
+          header.style.height = `${h}px`;
+
+          // Crossfade: collapsed bar out, expanded content in
+          if (collapsedEl) {
+            collapsedEl.style.opacity = `${1 - eased}`;
+            if (eased > 0.5) collapsedEl.style.pointerEvents = "none";
+          }
+          if (expandedEl) {
+            expandedEl.style.opacity = `${eased}`;
+            expandedEl.style.transform = `translateY(${(1 - eased) * 4}px)`;
           }
 
           if (p < 1) {
             returnToTopRafRef.current = requestAnimationFrame(expandTick);
           } else {
-            setIsReturnToTopAnimating(false);
-            setIsHeaderExpanding(false);
-            returnToTopPhaseRef.current = 0;
+            header.style.height = `${HEADER_EXPANDED}px`;
+
+            flushSync(() => {
+              setScrollY(0);
+              setIsReturnToTopAnimating(false);
+            });
+
+            // Clear inline overrides — CSS classes now match final state
+            if (collapsedEl) {
+              collapsedEl.style.opacity = "";
+              collapsedEl.style.pointerEvents = "";
+              collapsedEl.style.transition = "";
+            }
+            if (expandedEl) {
+              expandedEl.style.opacity = "";
+              expandedEl.style.transform = "";
+              expandedEl.style.transition = "";
+            }
+
+            // Next frame: re-enable CSS transitions and unlock
+            returnToTopRafRef.current = requestAnimationFrame(() => {
+              window.scrollTo({ top: 0, behavior: "instant" });
+              header.style.transition = "";
+              document.documentElement.style.overflowAnchor = "";
+              returnToTopPhaseRef.current = 0;
+            });
           }
         }
 
@@ -238,7 +288,7 @@ export default function StickyProfileHeader({
     : nearTop
       ? HEADER_EXPANDED
       : Math.max(HEADER_COLLAPSED, HEADER_EXPANDED - scrollY);
-  const isCollapsed = isReturning && !isHeaderExpanding ? true : scrollY >= COLLAPSE_AT;
+  const isCollapsed = isReturning || scrollY >= COLLAPSE_AT;
 
   const bgUrl = profile?.headerBg?.trim() || "/header-bg.png";
 
@@ -292,8 +342,8 @@ export default function StickyProfileHeader({
         }}
       />
       <div className="absolute inset-0 bg-black/50" />
-      {isCollapsed && !isReturning && (
-        <div className="absolute inset-0 z-10 flex items-stretch justify-center px-5">
+      {isCollapsed && (
+        <div ref={collapsedBarRef} className="absolute inset-0 z-10 flex items-stretch justify-center px-5">
           <button
             type="button"
             className="h-full min-w-0 flex-1 cursor-pointer"
@@ -322,8 +372,9 @@ export default function StickyProfileHeader({
       )}
       <div className="relative flex h-full w-full flex-col justify-center px-5">
         <div
+          ref={expandedContentRef}
           className={`min-w-0 flex-1 transition-[transform,opacity] duration-400 ease-out ${
-            isCollapsed
+            isCollapsed && !isReturning
               ? "translate-y-1 opacity-0 pointer-events-none"
               : "flex flex-col justify-center translate-y-0 opacity-100"
           }`}
