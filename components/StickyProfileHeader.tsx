@@ -209,13 +209,16 @@ export default function StickyProfileHeader({
   const HEADER_COLLAPSED = 56;
   const threshold = HEADER_EXPANDED - HEADER_COLLAPSED;
   const COLLAPSE_AT = threshold + 10;
+  const nearTop = scrollY < 28;
   const isReturning = isReturnToTopAnimating;
   const signatureTrimmed = profile?.signature?.trim() ?? "";
   const hasSignature = signatureTrimmed.length > 0;
 
   const height = isReturning
     ? HEADER_COLLAPSED
-    : Math.max(HEADER_COLLAPSED, HEADER_EXPANDED - scrollY);
+    : nearTop
+      ? HEADER_EXPANDED
+      : Math.max(HEADER_COLLAPSED, HEADER_EXPANDED - scrollY);
   const isCollapsed = isReturning && !isHeaderExpanding ? true : scrollY >= COLLAPSE_AT;
 
   const bgUrl = profile?.headerBg?.trim() || "/header-bg.png";
