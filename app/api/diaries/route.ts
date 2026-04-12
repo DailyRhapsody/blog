@@ -35,7 +35,18 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const limitParam = searchParams.get("limit");
 
-  const diaries = await getDiaries();
+  let diaries: Diary[];
+  try {
+    diaries = await getDiaries();
+  } catch (e) {
+    console.error("[diaries] getDiaries failed:", e);
+    return withAntiScrapeHeaders(
+      NextResponse.json(
+        { error: "无法读取日记", detail: e instanceof Error ? e.message : String(e) },
+        { status: 500 }
+      )
+    );
+  }
   const admin = await isAdmin();
   const visible = admin ? diaries : diaries.filter((d) => d.isPublic !== false);
 
