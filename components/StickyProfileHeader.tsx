@@ -35,13 +35,31 @@ export default function StickyProfileHeader({
 
   const hasEntriesBgm = Boolean(entriesBgmSrc?.trim());
 
-  /** 刷新/进入页后尝试自动播放（仅直接播放，不再用静音 hack，避免浏览器检测后 3 秒停掉） */
+  /** 刷新/进入页后尽量自动播放，多种策略重试 */
   const tryAutoplayBgm = useCallback(async () => {
     const a = audioRef.current;
     if (!a || !hasEntriesBgm) return;
     if (!a.paused) return;
-    // 直接尝试一次，成功就播，失败就等用户点击头像
-    await a.play().catch(() => {});
+
+    // 策略 1: 直接播放
+    try {
+      await a.play();
+      return; // 成功
+    } catch {
+      // 被浏览器拦截，继续尝试
+    }
+
+    // 策略 2: 等用户任意交互后自动播放（点击/触摸/按键都算）
+    const playOnInteraction = () => {
+      if (!a.paused) return;
+      void a.play().catch(() => {});
+      window.removeEventListener("click", playOnInteraction, true);
+      window.removeEventListener("touchstart", playOnInteraction, true);
+      window.removeEventListener("keydown", playOnInteraction, true);
+    };
+    window.addEventListener("click", playOnInteraction, { capture: true, once: false });
+    window.addEventListener("touchstart", playOnInteraction, { capture: true, once: false });
+    window.addEventListener("keydown", playOnInteraction, { capture: true, once: false });
   }, [hasEntriesBgm]);
 
   const toggleBgm = useCallback(() => {
