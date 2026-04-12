@@ -70,7 +70,8 @@ export default function EntriesPageClient({
       if (!m || !Array.isArray(m.media)) continue;
       for (const md of m.media) {
         const isImage = (md?.mediaType ?? "").startsWith("image/");
-        const thumb = md?.thumbUrl || (isImage ? md?.url : "");
+        if (!isImage) continue;
+        const thumb = md?.thumbUrl || md?.url || "";
         if (typeof thumb === "string" && thumb.trim()) imgs.push(thumb.trim());
         if (imgs.length >= 4) break;
       }
@@ -192,9 +193,8 @@ export default function EntriesPageClient({
                           src={src}
                           alt=""
                           fill
-                          unoptimized
                           className="object-cover"
-                          sizes="(max-width: 768px) 76px, 76px"
+                          sizes="76px"
                         />
                       ) : null}
                     </div>
