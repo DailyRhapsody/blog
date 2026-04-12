@@ -26,8 +26,8 @@ for (const line of envContent.split("\n")) {
 
 const NOTION_TOKEN = process.env.NOTION_TOKEN;
 const DATABASE_ID = process.env.NOTION_DATABASE_ID;
-const SUPABASE_URL = "https://fesdmsjjlsuglinodcxq.supabase.co";
-const SUPABASE_KEY = "REMOVED_SECRET";
+const SUPABASE_URL = process.env.SUPABASE_URL || "https://your-project.supabase.co";
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
 const notion = new Client({ auth: NOTION_TOKEN });
 
