@@ -171,20 +171,24 @@ export default function StickyProfileHeader({
     });
 
     const scrollDuration = Math.min(
-      1200,
-      300 + 180 * Math.log(1 + startY / 200),
+      1400,
+      400 + 200 * Math.log(1 + startY / 200),
     );
-    const startT = performance.now();
+    let startT = 0;
 
+    function easeInOutCubic(x: number) {
+      return x < 0.5 ? 4 * x ** 3 : 1 - (-2 * x + 2) ** 3 / 2;
+    }
     function easeOutCubic(x: number) {
       return 1 - (1 - x) ** 3;
     }
 
     // Phase 1: scroll to top only (no height changes — scrollTo works reliably)
     function scrollTick(now: number) {
+      if (!startT) startT = now;
       const elapsed = now - startT;
       const progress = Math.max(0, Math.min(elapsed / scrollDuration, 1));
-      const eased = easeOutCubic(progress);
+      const eased = easeInOutCubic(progress);
 
       window.scrollTo({ top: Math.round(startY * (1 - eased)), behavior: "instant" });
 
@@ -196,9 +200,10 @@ export default function StickyProfileHeader({
         // Phase 2: expand header + crossfade (no scrollTo — overflow-anchor:none prevents drift)
         returnToTopPhaseRef.current = 2;
         const EXPAND_MS = 400;
-        const expandStart = performance.now();
+        let expandStart = 0;
 
         function expandTick(now: number) {
+          if (!expandStart) expandStart = now;
           const elapsed = now - expandStart;
           const p = Math.max(0, Math.min(elapsed / EXPAND_MS, 1));
           const eased = easeOutCubic(p);
