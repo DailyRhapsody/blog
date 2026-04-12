@@ -7,6 +7,8 @@ export function momentsGridClass(n: number) {
   return "grid-cols-3";
 }
 
+export { momentsGridClass as galleryGridClass };
+
 export function legacyCopyTextToClipboard(text: string): boolean {
   const ta = document.createElement("textarea");
   ta.value = text;

@@ -38,3 +38,5 @@ export type MomentsTimelineRow = {
   createdAt: string;
   moment: PublicMoment;
 };
+
+export type GalleryTimelineRow = MomentsTimelineRow;

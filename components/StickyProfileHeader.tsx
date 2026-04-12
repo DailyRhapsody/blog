@@ -42,45 +42,67 @@ export default function StickyProfileHeader({
    * 策略 1: 直接有声播放（浏览器记住了交互历史时能成功）
    * 策略 2: 静音播放 + 等首次交互后解除静音（保证音乐「在播」，头像转动）
    * 策略 3: 等首次交互后播放（极端情况 fallback）
+   *
+   * 注意：交互监听器在对应策略成功/失败后才注册，避免异步间隙被提前消耗。
    */
   const tryAutoplayBgm = useCallback(async () => {
     const a = audioRef.current;
     if (!a || !hasEntriesBgm) return;
     if (!a.paused) return;
 
+    const INTERACTION_EVENTS = ["click", "touchstart", "keydown", "scroll"] as const;
+
+    /** 注册「首次交互解除静音」——仅在策略 2 静音播放成功后使用 */
+    function registerUnmute() {
+      const handler = () => {
+        if (!a) return;
+        a.muted = false;
+        for (const evt of INTERACTION_EVENTS) {
+          window.removeEventListener(evt, handler, true);
+        }
+      };
+      for (const evt of INTERACTION_EVENTS) {
+        window.addEventListener(evt, handler, { capture: true });
+      }
+    }
+
+    /** 注册「首次交互开始播放」——仅在策略 1+2 都失败后使用；
+     *  play 可能再失败（音频未就绪），此时不移除监听器，等下次交互重试 */
+    function registerPlay() {
+      const handler = () => {
+        if (!a) return;
+        void a.play()
+          .then(() => {
+            for (const evt of INTERACTION_EVENTS) {
+              window.removeEventListener(evt, handler, true);
+            }
+          })
+          .catch(() => { /* 保留监听器，下次交互再试 */ });
+      };
+      for (const evt of INTERACTION_EVENTS) {
+        window.addEventListener(evt, handler, { capture: true });
+      }
+    }
+
     // 策略 1: 直接有声播放
     try {
       await a.play();
       return;
-    } catch {
-      // 浏览器阻止了，继续
-    }
-
-    // 用户首次交互时解除静音（或开始播放）
-    const unmuteOnInteraction = () => {
-      if (a.muted) {
-        a.muted = false;
-      } else if (a.paused) {
-        void a.play().catch(() => {});
-      }
-      for (const evt of ["click", "touchstart", "keydown", "scroll"] as const) {
-        window.removeEventListener(evt, unmuteOnInteraction, true);
-      }
-    };
-    for (const evt of ["click", "touchstart", "keydown", "scroll"] as const) {
-      window.addEventListener(evt, unmuteOnInteraction, { capture: true });
-    }
+    } catch { /* 浏览器阻止了，继续 */ }
 
     // 策略 2: 静音播放（浏览器允许静音自动播放）
     try {
       a.muted = true;
       await a.play();
       // 静音播放成功 — 音乐在播，头像转动，等交互后解除静音
+      registerUnmute();
       return;
     } catch {
       a.muted = false;
-      // 连静音都失败了，等交互后直接播放（策略 3，由上面的 listener 处理）
     }
+
+    // 策略 3: 连静音都失败了，等交互后直接播放
+    registerPlay();
   }, [hasEntriesBgm]);
 
   const toggleBgm = useCallback(() => {
@@ -346,8 +368,13 @@ export default function StickyProfileHeader({
         }}
       />
       <div className="absolute inset-0 bg-black/50" />
-      {isCollapsed && (
-        <div ref={collapsedBarRef} className="absolute inset-0 z-10 flex items-stretch justify-center px-5">
+      {/* 始终在 DOM，用 visibility 控制显隐，保持 sm 头像 CSS 动画与 lg 同步 */}
+        <div
+          ref={collapsedBarRef}
+          className={`absolute inset-0 z-10 flex items-stretch justify-center px-5 ${
+            isCollapsed ? "visible" : "invisible pointer-events-none"
+          }`}
+        >
           <button
             type="button"
             className="h-full min-w-0 flex-1 cursor-pointer"
@@ -373,7 +400,6 @@ export default function StickyProfileHeader({
             aria-label="回到顶部并展开（右侧区域）"
           />
         </div>
-      )}
       <div className="relative flex h-full w-full flex-col justify-center px-5">
         <div
           ref={expandedContentRef}
