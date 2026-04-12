@@ -60,6 +60,11 @@ export default function AvatarLifeRing({
   const r = outer / 2 - stroke / 2 - 1;
   const c = 2 * Math.PI * r;
 
+  // 挂载时一次性计算 animation-delay，避免每次渲染值变化导致动画重启卡顿
+  const [spinDelay] = useState(() =>
+    spinStartTime > 0 ? -(Date.now() - spinStartTime) : 0,
+  );
+
   const [nowMs, setNowMs] = useState(0);
   const [hover, setHover] = useState(false);
   const [tooltipPos, setTooltipPos] = useState({ left: 0, top: 0 });
@@ -210,7 +215,8 @@ export default function AvatarLifeRing({
                   animationPlayState: spinState === "paused" ? ("paused" as const) : ("running" as const),
                   // 负 delay = 从动画时间线的「已过去」位置开始，
                   // 这样不同时刻挂载的 sm / lg 头像都对齐到同一角度。
-                  animationDelay: spinStartTime > 0 ? `${-(Date.now() - spinStartTime)}ms` : undefined,
+                  // 用挂载时算好的 spinDelay，避免每次渲染重算导致动画重启。
+                  animationDelay: spinDelay !== 0 ? `${spinDelay}ms` : undefined,
                 }
               : undefined
           }
