@@ -19,7 +19,7 @@ export default function AdminHeader() {
             href="/admin/gallery"
             className="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300"
           >
-            画廊
+            动态
           </Link>
           <Link
             href="/admin/analytics"

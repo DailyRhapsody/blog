@@ -97,7 +97,15 @@ export function useEntries(selectedTag: string | null): UseEntriesState {
     [],
   );
 
-  /* ── 首屏 / selectedTag 切换：从头拉一页 ── */
+  /* ── gate 就绪时的重加载触发器 ── */
+  const [gateGen, setGateGen] = useState(0);
+  useEffect(() => {
+    const onGateReady = () => setGateGen((g) => g + 1);
+    window.addEventListener("dr-gate-ready", onGateReady);
+    return () => window.removeEventListener("dr-gate-ready", onGateReady);
+  }, []);
+
+  /* ── 首屏 / selectedTag 切换 / gate 就绪：从头拉一页 ── */
   useEffect(() => {
     setLoading(true);
     loadPage(0, false, selectedTag)
@@ -106,7 +114,7 @@ export function useEntries(selectedTag: string | null): UseEntriesState {
         setTotal(0);
       })
       .finally(() => setLoading(false));
-  }, [selectedTag, loadPage]);
+  }, [selectedTag, loadPage, gateGen]);
 
   /* ── hash 深链 #entry-N：如果目标文章不在当前已加载列表里，就 append 下一页 ── */
   useEffect(() => {

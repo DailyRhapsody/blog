@@ -71,10 +71,18 @@ export function useGalleryMoments({ active }: { active: boolean }): UseGalleryMo
     }
   }, []);
 
-  /* 首次拉取 */
+  /* gate 就绪时重加载 */
+  const [gateGen, setGateGen] = useState(0);
+  useEffect(() => {
+    const onGateReady = () => setGateGen((g) => g + 1);
+    window.addEventListener("dr-gate-ready", onGateReady);
+    return () => window.removeEventListener("dr-gate-ready", onGateReady);
+  }, []);
+
+  /* 首次拉取 + gate 就绪后重拉 */
   useEffect(() => {
     void loadPage(0, true);
-  }, [loadPage]);
+  }, [loadPage, gateGen]);
 
   /* 无限滚动：仅在画廊 tab 激活时挂 IntersectionObserver */
   useEffect(() => {

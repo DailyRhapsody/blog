@@ -243,7 +243,7 @@ export default function AdminMomentsPage() {
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">画廊</h1>
+        <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">动态</h1>
         <Link href="/admin" className="text-sm text-zinc-500 hover:underline dark:text-zinc-400">
           ← 返回
         </Link>

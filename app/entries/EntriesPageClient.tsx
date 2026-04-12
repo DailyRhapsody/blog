@@ -38,7 +38,7 @@ export default function EntriesPageClient({
   const totalPosts = total;
   const currentEntries = items;
 
-  const [activeTopTab, setActiveTopTab] = useState(0); // 0=博客, 1=画廊
+  const [activeTopTab, setActiveTopTab] = useState(0); // 0=博客, 1=动态
   const {
     moments: galleryMoments,
     hasMore: galleryHasMore,
@@ -85,7 +85,7 @@ export default function EntriesPageClient({
     };
   }, []);
 
-  /* ── 读取 ?tab=gallery 初始化顶部 tab，让封面 Gallery 链接能直接落到画廊卡上。
+  /* ── 读取 ?tab=moments 初始化顶部 tab，让封面 Gallery 链接能直接落到动态卡上。
        这是「读取一次外部 URL 状态、写回 React 状态」的合法用法，
        react-hooks/set-state-in-effect 的启发式会误报，这里显式关掉。 */
   useEffect(() => {
@@ -173,7 +173,7 @@ export default function EntriesPageClient({
                 本月 {thisMonthPostCount} 篇更新
               </p>
             </button>
-            {/* 画廊卡片：activeTopTab===1 选中 */}
+            {/* 动态卡片：activeTopTab===1 选中 */}
             <button
               type="button"
               onClick={() => setActiveTopTab(1)}
