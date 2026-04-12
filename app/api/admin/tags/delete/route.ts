@@ -1,42 +1,8 @@
 import { NextResponse } from "next/server";
-import { isAdmin } from "@/lib/auth";
-import { rejectCrossSiteWrite } from "@/lib/same-origin";
-import { getDiaries, saveDiaries, type Diary } from "@/lib/diaries-store";
-import { allDiaries } from "@/app/diaries.data";
-import { extractHashtagsFromMarkdown, removeHashtagFromMarkdown } from "@/lib/hashtags";
 
-export async function POST(req: Request) {
-  const bad = rejectCrossSiteWrite(req);
-  if (bad) return bad;
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  let body: { tag?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
-  }
-  const tag = (body.tag ?? "").trim();
-  if (!tag) {
-    return NextResponse.json({ error: "Tag required" }, { status: 400 });
-  }
-
-  const diaries = await getDiaries(allDiaries);
-  let touched = 0;
-  for (const d of diaries) {
-    const before = d.summary ?? "";
-    // 与 lib/hashtags 规则一致：从正文去掉 #标签（围栏块外、行内代码不碰），并同步重算 tags[]
-    const nextSummary = removeHashtagFromMarkdown(before, tag);
-    if (nextSummary !== before) {
-      (d as Diary).summary = nextSummary;
-      (d as Diary).tags = extractHashtagsFromMarkdown(nextSummary);
-      touched += 1;
-    }
-  }
-  if (touched > 0) {
-    await saveDiaries(diaries);
-  }
-  return NextResponse.json({ ok: true, tag, touched });
+export async function POST() {
+  return NextResponse.json(
+    { error: "标签管理已迁移到 Notion，请在 Notion 数据库中直接删除 Tags 属性值。" },
+    { status: 410 }
+  );
 }
-

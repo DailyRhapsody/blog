@@ -9,7 +9,7 @@ export function EntryComments({
   open,
   onOpenChange,
 }: {
-  diaryId: number;
+  diaryId: string;
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
