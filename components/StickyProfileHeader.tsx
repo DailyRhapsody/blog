@@ -28,9 +28,6 @@ export default function StickyProfileHeader({
   const [isReturnToTopAnimating, setIsReturnToTopAnimating] = useState(false);
   const [isHeaderExpanding, setIsHeaderExpanding] = useState(false);
   const [bgmPlaying, setBgmPlaying] = useState(false);
-  /** 记录 BGM 首次开始播放的时间戳，用于同步多个头像实例的旋转角度 */
-  const spinStartRef = useRef(0);
-  const [spinStartTime, setSpinStartTime] = useState(0);
   const headerRef = useRef<HTMLElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const returnToTopPhaseRef = useRef<0 | 1 | 2>(0);
@@ -101,14 +98,7 @@ export default function StickyProfileHeader({
     if (!hasEntriesBgm) return;
     const a = audioRef.current;
     if (!a) return;
-    const onPlay = () => {
-      setBgmPlaying(true);
-      // 只在首次播放时记录起始时间
-      if (spinStartRef.current === 0) {
-        spinStartRef.current = Date.now();
-        setSpinStartTime(spinStartRef.current);
-      }
-    };
+    const onPlay = () => setBgmPlaying(true);
     const onPause = () => setBgmPlaying(false);
     a.addEventListener("play", onPlay);
     a.addEventListener("pause", onPause);
@@ -260,7 +250,6 @@ export default function StickyProfileHeader({
         spinState={
           hasEntriesBgm ? (bgmPlaying ? "running" : "paused") : "off"
         }
-        spinStartTime={spinStartTime}
       />
     );
     if (!hasEntriesBgm) {

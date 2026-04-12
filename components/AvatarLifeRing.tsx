@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 /** 1994.10.21 早上 5:05，东八区 */
@@ -34,7 +34,6 @@ export default function AvatarLifeRing({
   size,
   className = "",
   spinState = "off",
-  spinStartTime = 0,
 }: {
   src: string;
   size: keyof typeof SIZE_MAP;
@@ -43,12 +42,6 @@ export default function AvatarLifeRing({
    * 文章页背景音乐：播放中旋转；暂停时用 animation-play-state 冻结在当前角度（不回到 0°）
    */
   spinState?: "off" | "running" | "paused";
-  /**
-   * 播放开始时的时间戳（Date.now()）。
-   * 用负 animation-delay 让多个头像实例同步到同一旋转角度，
-   * 避免展开/收缩切换时角度跳变。
-   */
-  spinStartTime?: number;
 }) {
   const { outer, image, stroke, imageClass } = SIZE_MAP[size];
   const haloStroke = Math.max(stroke * 2.4, stroke + 3);
@@ -59,15 +52,6 @@ export default function AvatarLifeRing({
   const cy = viewPad + outer / 2;
   const r = outer / 2 - stroke / 2 - 1;
   const c = 2 * Math.PI * r;
-
-  // 仅在 spinStartTime 变化时重算一次（音乐开始播放那一刻），
-  // 之后保持稳定，不会因其他 re-render 导致动画重启。
-  // 两个头像实例（lg 展开 / sm 收缩）用同一个 spinStartTime，
-  // 算出的负 delay 让它们对齐到同一旋转角度。
-  const spinDelay = useMemo(
-    () => (spinStartTime > 0 ? -(Date.now() - spinStartTime) : 0),
-    [spinStartTime],
-  );
 
   const [nowMs, setNowMs] = useState(0);
   const [hover, setHover] = useState(false);
@@ -214,14 +198,8 @@ export default function AvatarLifeRing({
         <div
           className={`h-full w-full ${spinState !== "off" ? "dr-avatar-spin-slow" : ""}`}
           style={
-            spinState !== "off"
-              ? {
-                  animationPlayState: spinState === "paused" ? ("paused" as const) : ("running" as const),
-                  // 负 delay = 从动画时间线的「已过去」位置开始，
-                  // 这样不同时刻挂载的 sm / lg 头像都对齐到同一角度。
-                  // 用挂载时算好的 spinDelay，避免每次渲染重算导致动画重启。
-                  animationDelay: spinDelay !== 0 ? `${spinDelay}ms` : undefined,
-                }
+            spinState === "paused"
+              ? { animationPlayState: "paused" as const }
               : undefined
           }
         >
