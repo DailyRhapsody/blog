@@ -7,12 +7,12 @@ import StickyProfileHeader from "@/components/StickyProfileHeader";
 import { MomentLightbox } from "@/components/entries/MomentLightbox";
 import { CalendarHeatmap } from "@/components/entries/CalendarHeatmap";
 import { EntryCard } from "@/components/entries/EntryCard";
-import { GalleryTab } from "@/components/entries/GalleryTab";
+import { MomentsTab } from "@/components/entries/MomentsTab";
 import { getSizeClass } from "@/components/entries/utils";
-import type { GalleryTimelineRow } from "@/components/entries/types";
+import type { MomentsTimelineRow } from "@/components/entries/types";
 import { useProfile, type Profile } from "@/hooks/useProfile";
 import { useAdminSession } from "@/hooks/useAdminSession";
-import { useGalleryMoments } from "@/hooks/useGalleryMoments";
+import { useMoments } from "@/hooks/useMoments";
 import { useTabSwipeNavigation } from "@/hooks/useTabSwipeNavigation";
 import { useEntries } from "@/hooks/useEntries";
 import { useEggPullToRefresh } from "@/hooks/useEggPullToRefresh";
@@ -40,12 +40,12 @@ export default function EntriesPageClient({
 
   const [activeTopTab, setActiveTopTab] = useState(0); // 0=博客, 1=动态
   const {
-    moments: galleryMoments,
-    hasMore: galleryHasMore,
-    loading: galleryLoading,
-    loadingMore: galleryLoadingMore,
-    sentinelRef: gallerySentinelRef,
-  } = useGalleryMoments({ active: activeTopTab === 1 });
+    moments,
+    hasMore: momentsHasMore,
+    loading: momentsLoading,
+    loadingMore: momentsLoadingMore,
+    sentinelRef: momentsSentinelRef,
+  } = useMoments({ active: activeTopTab === 1 });
   const [lightbox, setLightbox] = useState<{ urls: string[]; i: number; lbKey: string } | null>(null);
   const profile = useProfile(initialProfile);
   const { isAdmin: isAdminSession } = useAdminSession();
@@ -55,17 +55,17 @@ export default function EntriesPageClient({
   const { eggPullY, isRebounding } = useEggPullToRefresh(!hasMore && totalPosts > 0);
   const contentWrapperRef = useRef<HTMLDivElement>(null);
 
-  const galleryTimeline = useMemo<GalleryTimelineRow[]>(() => {
-    return galleryMoments.map((m) => ({
+  const momentsTimeline = useMemo<MomentsTimelineRow[]>(() => {
+    return moments.map((m) => ({
       rowKey: `moment-${m.id}`,
       createdAt: m.createdAt,
       moment: m,
     }));
-  }, [galleryMoments]);
+  }, [moments]);
 
-  const galleryThumbs = useMemo(() => {
+  const momentsThumbs = useMemo(() => {
     const imgs: string[] = [];
-    for (const row of galleryTimeline) {
+    for (const row of momentsTimeline) {
       const m = row?.moment;
       if (!m || !Array.isArray(m.media)) continue;
       for (const md of m.media) {
@@ -77,7 +77,7 @@ export default function EntriesPageClient({
       if (imgs.length >= 4) break;
     }
     return imgs.slice(0, 4);
-  }, [galleryTimeline]);
+  }, [momentsTimeline]);
 
   useEffect(() => {
     return () => {
@@ -85,13 +85,13 @@ export default function EntriesPageClient({
     };
   }, []);
 
-  /* ── 读取 ?tab=moments 初始化顶部 tab，让封面 Gallery 链接能直接落到动态卡上。
+  /* ── 读取 ?tab=moments 初始化顶部 tab，让封面动态链接能直接落到动态卡上。
        这是「读取一次外部 URL 状态、写回 React 状态」的合法用法，
        react-hooks/set-state-in-effect 的启发式会误报，这里显式关掉。 */
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get("tab") === "gallery") {
+    if (params.get("tab") === "moments" || params.get("tab") === "gallery") {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveTopTab(1);
     }
@@ -181,7 +181,7 @@ export default function EntriesPageClient({
             >
               <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-2">
                 {Array.from({ length: 4 }).map((_, i) => {
-                  const src = galleryThumbs[i];
+                  const src = momentsThumbs[i];
                   return (
                     <div
                       key={src ? `${src}-${i}` : `ph-${i}`}
@@ -298,12 +298,12 @@ export default function EntriesPageClient({
               )}
             </>
           ) : (
-            <GalleryTab
-              timeline={galleryTimeline}
-              loading={galleryLoading}
-              hasMore={galleryHasMore}
-              loadingMore={galleryLoadingMore}
-              sentinelRef={gallerySentinelRef}
+            <MomentsTab
+              timeline={momentsTimeline}
+              loading={momentsLoading}
+              hasMore={momentsHasMore}
+              loadingMore={momentsLoadingMore}
+              sentinelRef={momentsSentinelRef}
               onOpenLightbox={(lb) => setLightbox(lb)}
             />
           )}

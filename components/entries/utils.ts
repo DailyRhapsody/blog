@@ -1,31 +1,10 @@
-import type { GalleryLegacyItem } from "@/hooks/useGalleryLegacy";
-import type { PublicMoment } from "./types";
-
 export const PAGE_SIZE = 30;
 export const MAX_SUMMARY_LINES = 5;
 
-export function galleryGridClass(n: number) {
+export function momentsGridClass(n: number) {
   if (n <= 1) return "grid-cols-1";
   if (n <= 4) return "grid-cols-2";
   return "grid-cols-3";
-}
-
-export function legacyToMoment(g: GalleryLegacyItem): PublicMoment {
-  const imgs = (g.images ?? []).filter((u) => typeof u === "string" && u.trim());
-  return {
-    id: g.id,
-    type: 1,
-    createdAt: g.createdAt,
-    media: imgs.map((url, i) => ({
-      url: url.trim(),
-      thumbUrl: url.trim(),
-      mediaType: "image/jpeg",
-      width: 0,
-      height: 0,
-      duration: 0,
-      sortOrder: i,
-    })),
-  };
 }
 
 export function legacyCopyTextToClipboard(text: string): boolean {

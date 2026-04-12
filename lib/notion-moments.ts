@@ -1,13 +1,13 @@
 /**
- * Notion-backed moments/gallery store (read-only).
+ * Notion-backed moments store (read-only).
  *
- * Unified data source for both the gallery preview and moments tab.
+ * Unified data source for the moments tab.
  * Reads from a Notion database with properties:
  *   Name (title), Date (date), Images (files), Public (checkbox)
  *
  * Outputs PublicMoment format compatible with the frontend.
  *
- * Env: NOTION_GALLERY_DATABASE_ID
+ * Env: NOTION_MOMENTS_DATABASE_ID
  */
 
 import { Client } from "@notionhq/client";
@@ -33,8 +33,8 @@ export type PublicMoment = {
   media: PublicMedia[];
 };
 
-// Also export a legacy GalleryItem shape for the gallery API
-export type GalleryItem = {
+// Also export a legacy MomentsItem shape for backwards compatibility
+export type MomentsItem = {
   id: string;
   createdAt: string;
   isPublic?: boolean;
@@ -57,8 +57,8 @@ function getClient(): Client {
 }
 
 function getDatabaseId(): string {
-  const id = process.env.NOTION_GALLERY_DATABASE_ID?.trim();
-  if (!id) throw new Error("NOTION_GALLERY_DATABASE_ID is required");
+  const id = (process.env.NOTION_MOMENTS_DATABASE_ID ?? process.env.NOTION_GALLERY_DATABASE_ID)?.trim();
+  if (!id) throw new Error("NOTION_MOMENTS_DATABASE_ID is required");
   return id;
 }
 
@@ -81,7 +81,7 @@ async function getRedis() {
   return _redis;
 }
 
-const CACHE_KEY = "notion:gallery";
+const CACHE_KEY = "notion:moments";
 
 async function getCached(): Promise<PublicMoment[] | null> {
   const redis = await getRedis();
@@ -104,7 +104,7 @@ async function setCache(items: PublicMoment[]): Promise<void> {
   }
 }
 
-export async function invalidateGalleryCache(): Promise<void> {
+export async function invalidateMomentsCache(): Promise<void> {
   const redis = await getRedis();
   if (!redis) return;
   try {
@@ -237,9 +237,9 @@ export async function listMoments(opts: {
 }
 
 /**
- * Legacy gallery format (for /api/gallery compatibility).
+ * Flat moments format for backwards compatibility.
  */
-export async function getGalleryItems(): Promise<GalleryItem[]> {
+export async function getMomentsItems(): Promise<MomentsItem[]> {
   const all = await getMoments();
   return all.map((m) => ({
     id: m.id,
@@ -249,9 +249,9 @@ export async function getGalleryItems(): Promise<GalleryItem[]> {
   }));
 }
 
-export function isGalleryConfigured(): boolean {
+export function isMomentsConfigured(): boolean {
   return !!(
     process.env.NOTION_TOKEN?.trim() &&
-    process.env.NOTION_GALLERY_DATABASE_ID?.trim()
+    (process.env.NOTION_MOMENTS_DATABASE_ID ?? process.env.NOTION_GALLERY_DATABASE_ID)?.trim()
   );
 }

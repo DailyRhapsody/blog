@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardApiRequest, withAntiScrapeHeaders } from "@/lib/request-guard";
-import { listMoments, isGalleryConfigured } from "@/lib/notion-gallery";
+import { listMoments, isMomentsConfigured } from "@/lib/notion-moments";
 
 export async function GET(req: Request) {
   const blocked = await guardApiRequest(req, {
@@ -10,7 +10,7 @@ export async function GET(req: Request) {
   });
   if (blocked) return blocked;
 
-  if (!isGalleryConfigured()) {
+  if (!isMomentsConfigured()) {
     return withAntiScrapeHeaders(
       NextResponse.json({ error: "Moments not configured" }, { status: 503 })
     );

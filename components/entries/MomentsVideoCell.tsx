@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 
-/** 画廊视频懒加载：默认只渲染缩略图占位 + 播放图标，
+/** 动态视频懒加载：默认只渲染缩略图占位 + 播放图标，
  *  避免 iOS Safari 在 mount `<video>` + 加载元数据时抢占音频会话，
  *  从而中断 StickyProfileHeader 里正在播放的背景音乐。
  *  用户点击后才插入真正的 <video> 并自动播放。 */
-export function GalleryVideoCell({
+export function MomentsVideoCell({
   src,
   posterUrl,
 }: {

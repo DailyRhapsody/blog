@@ -14,7 +14,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { invalidateCache } from "@/lib/notion";
-import { invalidateGalleryCache } from "@/lib/notion-gallery";
+import { invalidateMomentsCache } from "@/lib/notion-moments";
 
 export async function POST(req: NextRequest) {
   const secret = req.nextUrl.searchParams.get("secret");
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
   try {
     // Clear Notion caches
     await invalidateCache();
-    await invalidateGalleryCache();
+    await invalidateMomentsCache();
 
     // Revalidate all pages that display diaries
     revalidatePath("/", "layout");

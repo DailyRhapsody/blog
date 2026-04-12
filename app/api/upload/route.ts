@@ -36,7 +36,7 @@ const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 function getSupabaseUploadConfig() {
   const url = process.env.SUPABASE_URL?.trim();
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-  const bucket = process.env.SUPABASE_STORAGE_BUCKET?.trim() || "gallery";
+  const bucket = process.env.SUPABASE_STORAGE_BUCKET?.trim() || "moments";
   if (!url || !serviceRoleKey) return null;
   return { url, serviceRoleKey, bucket };
 }

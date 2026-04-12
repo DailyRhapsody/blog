@@ -1,9 +1,9 @@
 "use client";
 
 import { type RefObject } from "react";
-import { GalleryVideoCell } from "./GalleryVideoCell";
-import { galleryGridClass } from "./utils";
-import type { GalleryTimelineRow } from "./types";
+import { MomentsVideoCell } from "./MomentsVideoCell";
+import { momentsGridClass } from "./utils";
+import type { MomentsTimelineRow } from "./types";
 
 /** 把 ISO 字符串渲染成本地 YYYY-MM-DD（按本地时区，不含时分秒） */
 function formatMomentDate(iso: string): string {
@@ -15,13 +15,13 @@ function formatMomentDate(iso: string): string {
   return `${y}-${m}-${day}`;
 }
 
-export type GalleryLightboxOpen = {
+export type MomentsLightboxOpen = {
   urls: string[];
   i: number;
   lbKey: string;
 };
 
-export function GalleryTab({
+export function MomentsTab({
   timeline,
   loading,
   hasMore,
@@ -29,12 +29,12 @@ export function GalleryTab({
   sentinelRef,
   onOpenLightbox,
 }: {
-  timeline: GalleryTimelineRow[];
+  timeline: MomentsTimelineRow[];
   loading: boolean;
   hasMore: boolean;
   loadingMore: boolean;
   sentinelRef: RefObject<HTMLDivElement | null>;
-  onOpenLightbox: (lb: GalleryLightboxOpen) => void;
+  onOpenLightbox: (lb: MomentsLightboxOpen) => void;
 }) {
   return (
     <section className="pt-2">
@@ -72,7 +72,7 @@ export function GalleryTab({
                 {formatMomentDate(m.createdAt)}
               </p>
               <div className="overflow-hidden rounded bg-black">
-                <GalleryVideoCell
+                <MomentsVideoCell
                   src={sorted[0].url}
                   posterUrl={sorted[0].thumbUrl || undefined}
                 />
@@ -91,7 +91,7 @@ export function GalleryTab({
             <p className="mb-2 text-[13px] leading-none text-zinc-400 dark:text-zinc-500">
               {formatMomentDate(m.createdAt)}
             </p>
-            <div className={`grid ${galleryGridClass(n)} ${n <= 1 ? "" : "gap-0.5"}`}>
+            <div className={`grid ${momentsGridClass(n)} ${n <= 1 ? "" : "gap-0.5"}`}>
               {sorted.map((media, idx) => {
                 // n===1：让 <img> 走自然流，按图片原始比例自撑高（封顶 72vh），
                 // 之前用 absolute + aspect-auto 会让父按钮高度坍成 0，肉眼就是一片空白。

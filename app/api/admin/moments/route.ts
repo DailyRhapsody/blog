@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isAdmin } from "@/lib/auth";
 import { rejectCrossSiteWrite } from "@/lib/same-origin";
-import { listMoments, isGalleryConfigured } from "@/lib/notion-gallery";
+import { listMoments, isMomentsConfigured } from "@/lib/notion-moments";
 
 export async function GET(req: Request) {
   const badOrigin = rejectCrossSiteWrite(req);
@@ -10,8 +10,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!isGalleryConfigured()) {
-    return NextResponse.json({ error: "Gallery not configured" }, { status: 503 });
+  if (!isMomentsConfigured()) {
+    return NextResponse.json({ error: "Moments not configured" }, { status: 503 });
   }
 
   const url = new URL(req.url);

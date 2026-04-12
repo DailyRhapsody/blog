@@ -49,7 +49,7 @@ async function solvePow(seedNonce: string, difficulty: number): Promise<string> 
  *  2) 这里读取 dr_seed → 解析 nonce → 计算 PoW → POST /api/gate/issue。
  *  3) 服务端校验 PoW + Sec-Fetch-Site 等指纹，签发 HttpOnly 的 dr_gate（48 小时）。
  *
- * 之后受保护接口（diaries/moments/gallery/profile）才会放行。
+ * 之后受保护接口（diaries/moments/profile）才会放行。
  *
  * 该过程对真人无感（~100ms），但对脚本爬虫意味着：
  *  - 必须执行 JavaScript 才能拿到 nonce；

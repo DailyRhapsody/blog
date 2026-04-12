@@ -33,7 +33,7 @@ export type PublicMoment = {
   media: PublicMedia[];
 };
 
-export type GalleryTimelineRow = {
+export type MomentsTimelineRow = {
   rowKey: string;
   createdAt: string;
   moment: PublicMoment;
