@@ -35,31 +35,50 @@ export default function StickyProfileHeader({
 
   const hasEntriesBgm = Boolean(entriesBgmSrc?.trim());
 
-  /** 刷新/进入页后尽量自动播放，多种策略重试 */
+  /**
+   * 刷新/进入页后尽量自动播放。
+   * 策略 1: 直接有声播放（浏览器记住了交互历史时能成功）
+   * 策略 2: 静音播放 + 等首次交互后解除静音（保证音乐「在播」，头像转动）
+   * 策略 3: 等首次交互后播放（极端情况 fallback）
+   */
   const tryAutoplayBgm = useCallback(async () => {
     const a = audioRef.current;
     if (!a || !hasEntriesBgm) return;
     if (!a.paused) return;
 
-    // 策略 1: 直接播放
+    // 策略 1: 直接有声播放
     try {
       await a.play();
-      return; // 成功
+      return;
     } catch {
-      // 被浏览器拦截，继续尝试
+      // 浏览器阻止了，继续
     }
 
-    // 策略 2: 等用户任意交互后自动播放（点击/触摸/按键都算）
-    const playOnInteraction = () => {
-      if (!a.paused) return;
-      void a.play().catch(() => {});
-      window.removeEventListener("click", playOnInteraction, true);
-      window.removeEventListener("touchstart", playOnInteraction, true);
-      window.removeEventListener("keydown", playOnInteraction, true);
+    // 用户首次交互时解除静音（或开始播放）
+    const unmuteOnInteraction = () => {
+      if (a.muted) {
+        a.muted = false;
+      } else if (a.paused) {
+        void a.play().catch(() => {});
+      }
+      for (const evt of ["click", "touchstart", "keydown", "scroll"] as const) {
+        window.removeEventListener(evt, unmuteOnInteraction, true);
+      }
     };
-    window.addEventListener("click", playOnInteraction, { capture: true, once: false });
-    window.addEventListener("touchstart", playOnInteraction, { capture: true, once: false });
-    window.addEventListener("keydown", playOnInteraction, { capture: true, once: false });
+    for (const evt of ["click", "touchstart", "keydown", "scroll"] as const) {
+      window.addEventListener(evt, unmuteOnInteraction, { capture: true });
+    }
+
+    // 策略 2: 静音播放（浏览器允许静音自动播放）
+    try {
+      a.muted = true;
+      await a.play();
+      // 静音播放成功 — 音乐在播，头像转动，等交互后解除静音
+      return;
+    } catch {
+      a.muted = false;
+      // 连静音都失败了，等交互后直接播放（策略 3，由上面的 listener 处理）
+    }
   }, [hasEntriesBgm]);
 
   const toggleBgm = useCallback(() => {
