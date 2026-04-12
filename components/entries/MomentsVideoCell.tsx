@@ -35,18 +35,13 @@ export function MomentsVideoCell({
       className="relative block w-full"
       aria-label="播放视频"
     >
-      {posterUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={posterUrl}
-          alt=""
-          className="max-h-[min(70vh,520px)] w-full object-contain"
-          loading="lazy"
-          decoding="async"
-        />
-      ) : (
-        <div className="flex aspect-video w-full items-center justify-center bg-zinc-900" />
-      )}
+      <video
+        src={src}
+        muted
+        playsInline
+        preload="metadata"
+        className="max-h-[min(70vh,520px)] w-full object-contain bg-zinc-900"
+      />
       <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
         <span className="flex h-14 w-14 items-center justify-center rounded-full bg-black/55 backdrop-blur-sm">
           <svg viewBox="0 0 24 24" className="h-7 w-7 text-white" fill="currentColor" aria-hidden>

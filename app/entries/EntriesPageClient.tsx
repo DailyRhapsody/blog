@@ -64,20 +64,20 @@ export default function EntriesPageClient({
   }, [moments]);
 
   const momentsThumbs = useMemo(() => {
-    const imgs: string[] = [];
+    const items: { src: string; isVideo: boolean }[] = [];
     for (const row of momentsTimeline) {
       const m = row?.moment;
       if (!m || !Array.isArray(m.media)) continue;
       for (const md of m.media) {
-        const isImage = (md?.mediaType ?? "").startsWith("image/");
-        if (!isImage) continue;
-        const thumb = md?.thumbUrl || md?.url || "";
-        if (typeof thumb === "string" && thumb.trim()) imgs.push(thumb.trim());
-        if (imgs.length >= 4) break;
+        const src = (md?.url || md?.thumbUrl || "").trim();
+        if (!src) continue;
+        const isVideo = (md?.mediaType ?? "").startsWith("video/");
+        items.push({ src, isVideo });
+        if (items.length >= 4) break;
       }
-      if (imgs.length >= 4) break;
+      if (items.length >= 4) break;
     }
-    return imgs.slice(0, 4);
+    return items.slice(0, 4);
   }, [momentsTimeline]);
 
   useEffect(() => {
@@ -182,20 +182,30 @@ export default function EntriesPageClient({
             >
               <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-2">
                 {Array.from({ length: 4 }).map((_, i) => {
-                  const src = momentsThumbs[i];
+                  const item = momentsThumbs[i];
                   return (
                     <div
-                      key={src ? `${src}-${i}` : `ph-${i}`}
+                      key={item ? `${item.src}-${i}` : `ph-${i}`}
                       className="relative overflow-hidden rounded-[8px] bg-zinc-100 ring-1 ring-zinc-200/70 dark:bg-zinc-700/60 dark:ring-zinc-600/60"
                     >
-                      {src ? (
-                        <Image
-                          src={src}
-                          alt=""
-                          fill
-                          className="object-cover"
-                          sizes="76px"
-                        />
+                      {item ? (
+                        item.isVideo ? (
+                          <video
+                            src={item.src}
+                            muted
+                            playsInline
+                            preload="metadata"
+                            className="absolute inset-0 h-full w-full object-cover"
+                          />
+                        ) : (
+                          <Image
+                            src={item.src}
+                            alt=""
+                            fill
+                            className="object-cover"
+                            sizes="76px"
+                          />
+                        )
                       ) : null}
                     </div>
                   );
