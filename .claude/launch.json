@@ -4,7 +4,7 @@
     {
       "name": "next-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": ["run", "dev:webpack"],
       "port": 3000
     }
   ]
