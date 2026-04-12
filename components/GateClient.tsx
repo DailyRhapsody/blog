@@ -65,7 +65,8 @@ async function performHandshake(): Promise<void> {
   const seed = readCookie(SEED_COOKIE);
   if (!seed) return; // 中间件没签发（可能不是 gate-issuing page）
   const parts = seed.split(".");
-  if (parts.length !== 3) return;
+  // seed 格式是 4 段：exp.nonce.ipBucket.sig
+  if (parts.length !== 4) return;
   const nonce = parts[1];
   if (!nonce) return;
 
