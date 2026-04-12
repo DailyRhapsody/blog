@@ -35,29 +35,13 @@ export default function StickyProfileHeader({
 
   const hasEntriesBgm = Boolean(entriesBgmSrc?.trim());
 
-  /** 刷新/进入页后尽量自动播放（先直放，失败则静音起播再开声） */
+  /** 刷新/进入页后尝试自动播放（仅直接播放，不再用静音 hack，避免浏览器检测后 3 秒停掉） */
   const tryAutoplayBgm = useCallback(async () => {
     const a = audioRef.current;
     if (!a || !hasEntriesBgm) return;
     if (!a.paused) return;
-
-    const playTry = () =>
-      a.play().then(
-        () => true,
-        () => false
-      );
-
-    if (await playTry()) return;
-
-    try {
-      a.muted = true;
-      if (await playTry()) {
-        a.muted = false;
-        return;
-      }
-    } finally {
-      a.muted = false;
-    }
+    // 直接尝试一次，成功就播，失败就等用户点击头像
+    await a.play().catch(() => {});
   }, [hasEntriesBgm]);
 
   const toggleBgm = useCallback(() => {
@@ -207,16 +191,13 @@ export default function StickyProfileHeader({
   const HEADER_COLLAPSED = 56;
   const threshold = HEADER_EXPANDED - HEADER_COLLAPSED;
   const COLLAPSE_AT = threshold + 10;
-  const nearTop = scrollY < 28;
   const isReturning = isReturnToTopAnimating;
   const signatureTrimmed = profile?.signature?.trim() ?? "";
   const hasSignature = signatureTrimmed.length > 0;
 
   const height = isReturning
     ? HEADER_COLLAPSED
-    : nearTop
-      ? HEADER_EXPANDED
-      : Math.max(HEADER_COLLAPSED, HEADER_EXPANDED - scrollY);
+    : Math.max(HEADER_COLLAPSED, HEADER_EXPANDED - scrollY);
   const isCollapsed = isReturning && !isHeaderExpanding ? true : scrollY >= COLLAPSE_AT;
 
   const bgUrl = profile?.headerBg?.trim() || "/header-bg.png";
