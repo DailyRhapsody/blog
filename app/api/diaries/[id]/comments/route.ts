@@ -11,8 +11,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   });
   if (blocked) return blocked;
   const { id } = await params;
-  const diaryId = Number(id);
-  if (!Number.isInteger(diaryId)) {
+  const diaryId = id;
+  if (!diaryId) {
     return withAntiScrapeHeaders(
       NextResponse.json({ error: "Invalid id" }, { status: 400 })
     );
@@ -35,8 +35,8 @@ export async function POST(
   });
   if (blocked) return blocked;
   const { id } = await params;
-  const diaryId = Number(id);
-  if (!Number.isInteger(diaryId)) {
+  const diaryId = id;
+  if (!diaryId) {
     return withAntiScrapeHeaders(
       NextResponse.json({ error: "Invalid id" }, { status: 400 })
     );

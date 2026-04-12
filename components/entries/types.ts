@@ -1,5 +1,5 @@
 export type Diary = {
-  id: number;
+  id: string;
   date: string;
   publishedAt?: string;
   isPublic?: boolean;

@@ -8,11 +8,10 @@ import { MomentLightbox } from "@/components/entries/MomentLightbox";
 import { CalendarHeatmap } from "@/components/entries/CalendarHeatmap";
 import { EntryCard } from "@/components/entries/EntryCard";
 import { GalleryTab } from "@/components/entries/GalleryTab";
-import { getSizeClass, legacyToMoment } from "@/components/entries/utils";
+import { getSizeClass } from "@/components/entries/utils";
 import type { GalleryTimelineRow } from "@/components/entries/types";
 import { useProfile, type Profile } from "@/hooks/useProfile";
 import { useAdminSession } from "@/hooks/useAdminSession";
-import { useGalleryLegacy } from "@/hooks/useGalleryLegacy";
 import { useGalleryMoments } from "@/hooks/useGalleryMoments";
 import { useTabSwipeNavigation } from "@/hooks/useTabSwipeNavigation";
 import { useEntries } from "@/hooks/useEntries";
@@ -39,7 +38,6 @@ export default function EntriesPageClient({
   const totalPosts = total;
   const currentEntries = items;
 
-  const { items: galleryLegacy } = useGalleryLegacy();
   const [activeTopTab, setActiveTopTab] = useState(0); // 0=博客, 1=画廊
   const {
     moments: galleryMoments,
@@ -57,37 +55,23 @@ export default function EntriesPageClient({
   const { eggPullY, isRebounding } = useEggPullToRefresh(!hasMore && totalPosts > 0);
   const contentWrapperRef = useRef<HTMLDivElement>(null);
 
-  const galleryTimeline = useMemo(() => {
-    const legacyVisible = galleryLegacy.filter((g) => g?.images?.length && (isAdminSession || g.isPublic !== false));
-    const legacyRows: GalleryTimelineRow[] = legacyVisible.map((g) => ({
-      rowKey: `legacy-${g.id}`, createdAt: g.createdAt, moment: legacyToMoment(g),
+  const galleryTimeline = useMemo<GalleryTimelineRow[]>(() => {
+    return galleryMoments.map((m) => ({
+      rowKey: `moment-${m.id}`,
+      createdAt: m.createdAt,
+      moment: m,
     }));
-    const momentRows: GalleryTimelineRow[] = galleryMoments.map((m) => ({
-      rowKey: `moment-${m.id}`, createdAt: m.createdAt, moment: m,
-    }));
-    return [...legacyRows, ...momentRows].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    );
-  }, [galleryLegacy, galleryMoments, isAdminSession]);
+  }, [galleryMoments]);
 
   const galleryThumbs = useMemo(() => {
-    // 既要兼容老的 /api/gallery（galleryLegacy），也要展示新的 moments（galleryMoments）。
-    // 后台 /admin/gallery 是 POST /api/moments，老的只读 /api/gallery 的话新图永远拉不到。
-    // galleryTimeline 已经把两边按时间合并好了，从它取最近 4 张缩略图。
     const imgs: string[] = [];
-    const pushIfValid = (raw: unknown) => {
-      if (typeof raw !== "string") return;
-      const s = raw.trim();
-      if (!s) return;
-      imgs.push(s);
-    };
     for (const row of galleryTimeline) {
       const m = row?.moment;
       if (!m || !Array.isArray(m.media)) continue;
       for (const md of m.media) {
         const isImage = (md?.mediaType ?? "").startsWith("image/");
-        // 视频也允许把 thumbUrl 当封面缩略图（视频本身不能 <Image fill> 渲染）
-        pushIfValid(md?.thumbUrl || (isImage ? md?.url : ""));
+        const thumb = md?.thumbUrl || (isImage ? md?.url : "");
+        if (typeof thumb === "string" && thumb.trim()) imgs.push(thumb.trim());
         if (imgs.length >= 4) break;
       }
       if (imgs.length >= 4) break;

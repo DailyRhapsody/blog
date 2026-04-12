@@ -120,9 +120,9 @@ export function useEntries(selectedTag: string | null): UseEntriesState {
       });
       return;
     }
-    const idNum = Number(anchor.slice("entry-".length));
-    if (!Number.isFinite(idNum)) return;
-    const inList = items.some((d) => d.id === idNum);
+    const targetId = anchor.slice("entry-".length);
+    if (!targetId) return;
+    const inList = items.some((d) => d.id === targetId);
     if (inList) {
       requestAnimationFrame(() => {
         document.getElementById(anchor)?.scrollIntoView({

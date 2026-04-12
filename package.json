@@ -12,6 +12,7 @@
     "vercel:env": "npx vercel env pull .env.local"
   },
   "dependencies": {
+    "@notionhq/client": "^2.3.0",
     "@supabase/supabase-js": "^2.101.1",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.37.0",

@@ -6,7 +6,7 @@ export type ShareCardInput = {
   summary: string;
   date: string;
   publishedAt?: string;
-  entryId: number;
+  entryId: string | number;
   authorName: string;
   tags?: string[];
 };
@@ -72,7 +72,10 @@ export function createShareCardElement(props: ShareCardInput): HTMLDivElement {
   const showAuthorLine =
     authorTrimmed.length > 0 && authorTrimmed !== DEFAULT_SHARE_AUTHOR_LABEL;
   const bodyHtml = escapeHtml(body).replace(/\n/g, "<br/>");
-  const subtitle = `Chapter. ${props.entryId}`;
+  const shortId = typeof props.entryId === "number"
+    ? props.entryId
+    : props.entryId.slice(0, 8);
+  const subtitle = `Chapter. ${shortId}`;
 
   const root = document.createElement("div");
   root.setAttribute("data-dailyrhapsody-share-card", "1");

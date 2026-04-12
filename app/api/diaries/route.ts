@@ -1,15 +1,9 @@
 import { NextResponse } from "next/server";
 import { isAdmin } from "@/lib/auth";
-import { getDiaries, saveDiaries, nextId, type Diary } from "@/lib/diaries-store";
-import { allDiaries } from "@/app/diaries.data";
+import { getDiaries, isNotionConfigured, type Diary } from "@/lib/notion";
 import { guardApiRequest, withAntiScrapeHeaders } from "@/lib/request-guard";
-import { rejectCrossSiteWrite } from "@/lib/same-origin";
-import { extractHashtagsFromMarkdown } from "@/lib/hashtags";
-import { localYmd } from "@/lib/publish-datetime";
 
 const DEFAULT_PAGE_SIZE = 30;
-// 收紧到 30：原值 100 让爬虫两次请求即可拿走全站 summary。
-// 真实前端使用滚动加载，每次 30 条已经够用。
 const MAX_PAGE_SIZE = 30;
 
 function getTagCounts(diaries: Diary[]): { name: string; value: number }[] {
@@ -32,20 +26,18 @@ export async function GET(req: Request) {
   });
   if (blocked) return blocked;
 
+  if (!isNotionConfigured()) {
+    return withAntiScrapeHeaders(
+      NextResponse.json({ error: "Notion is not configured" }, { status: 503 })
+    );
+  }
+
   const { searchParams } = new URL(req.url);
   const limitParam = searchParams.get("limit");
 
-  const diaries = await getDiaries(allDiaries);
+  const diaries = await getDiaries();
   const admin = await isAdmin();
   const visible = admin ? diaries : diaries.filter((d) => d.isPublic !== false);
-  visible.sort((a, b) => {
-    if (a.pinned && !b.pinned) return -1;
-    if (!a.pinned && b.pinned) return 1;
-    return (
-      new Date(b.publishedAt ?? b.date).getTime() -
-      new Date(a.publishedAt ?? a.date).getTime()
-    );
-  });
 
   if (limitParam == null || limitParam === "") {
     if (!admin) {
@@ -99,81 +91,4 @@ export async function GET(req: Request) {
   }
 
   return withAntiScrapeHeaders(NextResponse.json(body));
-}
-
-export async function POST(req: Request) {
-  try {
-    const badOrigin = rejectCrossSiteWrite(req);
-    if (badOrigin) return badOrigin;
-    const ok = await isAdmin();
-    if (!ok) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    let body: {
-      date?: string;
-      publishedAt?: string;
-      summary?: string;
-      location?: string;
-      tags?: string[];
-      images?: string[];
-      pinned?: boolean;
-      isPublic?: boolean;
-    };
-    try {
-      body = await req.json();
-    } catch {
-      return NextResponse.json({ error: "Invalid body" }, { status: 400 });
-    }
-    const diaries = await getDiaries(allDiaries);
-    if (body.pinned) {
-      const existing = diaries.find((d) => d.pinned);
-      if (existing) {
-        return NextResponse.json(
-          { error: "已有置顶博客，请先在编辑页取消该篇置顶后再设置本文置顶。" },
-          { status: 400 }
-        );
-      }
-    }
-    const id = nextId(diaries);
-    const summary = body.summary ?? "";
-    let dateStr: string;
-    let publishedAt: string | undefined;
-    const rawPub = body.publishedAt?.trim();
-    if (rawPub) {
-      const t = new Date(rawPub);
-      if (Number.isNaN(t.getTime())) {
-        return NextResponse.json({ error: "发布时间无效" }, { status: 400 });
-      }
-      publishedAt = t.toISOString();
-      dateStr = localYmd(t);
-    } else {
-      dateStr = body.date ?? new Date().toISOString().slice(0, 10);
-      publishedAt = undefined;
-    }
-    const newDiary: Diary = {
-      id,
-      date: dateStr,
-      publishedAt,
-      pinned: !!body.pinned,
-      isPublic: body.isPublic !== false,
-      summary,
-      location: body.location?.trim() || "",
-      tags: extractHashtagsFromMarkdown(summary),
-      images: Array.isArray(body.images) ? body.images : [],
-    };
-    diaries.unshift(newDiary);
-    diaries.sort((a, b) => {
-      if (a.pinned && !b.pinned) return -1;
-      if (!a.pinned && b.pinned) return 1;
-      return (
-        new Date(b.publishedAt ?? b.date).getTime() -
-        new Date(a.publishedAt ?? a.date).getTime()
-      );
-    });
-    await saveDiaries(diaries);
-    return NextResponse.json(newDiary);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "保存失败";
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
 }

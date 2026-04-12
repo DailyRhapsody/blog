@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 export type Comment = {
   id: string;
-  diaryId: number;
+  diaryId: string;
   author: string;
   content: string;
   createdAt: string; // ISO
@@ -27,7 +27,7 @@ async function writeToFile(comments: Comment[]): Promise<void> {
   await writeFile(DATA_FILE, JSON.stringify(comments, null, 2), "utf8");
 }
 
-export async function getComments(diaryId: number): Promise<Comment[]> {
+export async function getComments(diaryId: string): Promise<Comment[]> {
   const all = await readFromFile();
   return all.filter((c) => c.diaryId === diaryId).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 }
