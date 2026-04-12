@@ -149,8 +149,7 @@ export default function StickyProfileHeader({
 
     const HEADER_EXPANDED = 260;
     const HEADER_COLLAPSED = 56;
-    const header = headerRef.current;
-    if (!header) return;
+    const header = headerRef.current!;
 
     returnToTopPhaseRef.current = 1;
 
