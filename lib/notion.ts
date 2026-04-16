@@ -31,7 +31,7 @@ export type Diary = {
   summary: string; // rich text → plain text
   location?: string;
   tags?: string[];
-  images?: string[]; // proxied URLs via /api/media
+  images?: string[]; // raw Notion file URL or external URL (max 1)
 };
 
 // ---------------------------------------------------------------------------
@@ -192,50 +192,28 @@ function extractIsPublic(page: PageObjectResponse): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Image extraction from page content blocks
+// Image extraction from the "Image" Files property (max 1 image per entry)
 // ---------------------------------------------------------------------------
 
-async function extractPageImages(pageId: string): Promise<string[]> {
-  const client = getClient();
-  const images: string[] = [];
-
-  try {
-    let cursor: string | undefined;
-    do {
-      const response = await client.blocks.children.list({
-        block_id: pageId,
-        start_cursor: cursor,
-        page_size: 100,
-      });
-
-      for (const block of response.results) {
-        if ("type" in block && block.type === "image") {
-          const img = block.image;
-          let url: string | undefined;
-          if (img.type === "file") {
-            // Notion-hosted: needs proxy due to expiring signed URL
-            url = `/api/media?block=${block.id}`;
-          } else if (img.type === "external") {
-            url = img.external.url;
-          }
-          if (url) images.push(url);
-        }
-      }
-
-      cursor = response.has_more ? response.next_cursor ?? undefined : undefined;
-    } while (cursor);
-  } catch {
-    // If block fetching fails, return empty — non-fatal
+function extractImages(page: PageObjectResponse): string[] {
+  const prop = page.properties["Image"];
+  if (prop?.type !== "files") return [];
+  const first = prop.files[0];
+  if (!first) return [];
+  let url: string | undefined;
+  if (first.type === "file") {
+    url = first.file.url;
+  } else if (first.type === "external") {
+    url = first.external.url;
   }
-
-  return images;
+  return url ? [url] : [];
 }
 
 // ---------------------------------------------------------------------------
 // Core: fetch all diaries from Notion
 // ---------------------------------------------------------------------------
 
-function mapPageToDiary(page: PageObjectResponse, images: string[]): Diary {
+function mapPageToDiary(page: PageObjectResponse): Diary {
   const title = extractTitle(page);
   const summary = extractSummary(page);
 
@@ -249,7 +227,7 @@ function mapPageToDiary(page: PageObjectResponse, images: string[]): Diary {
     summary: summary || title,
     location: extractLocation(page),
     tags: extractTags(page),
-    images,
+    images: extractImages(page),
   };
 }
 
@@ -289,8 +267,7 @@ export async function getDiaries(): Promise<Diary[]> {
       : undefined;
   } while (cursor);
 
-  // List view: skip image extraction for speed (images loaded on-demand per page)
-  const diaries = pages.map((page) => mapPageToDiary(page, []));
+  const diaries = pages.map((page) => mapPageToDiary(page));
 
   // Sort: pinned first, then by publishedAt/date descending
   diaries.sort((a, b) => {
@@ -323,8 +300,7 @@ export async function getDiaryById(id: string): Promise<Diary | null> {
 
     if (!("properties" in page)) return null;
 
-    const images = await extractPageImages(id);
-    return mapPageToDiary(page as PageObjectResponse, images);
+    return mapPageToDiary(page as PageObjectResponse);
   } catch {
     return null;
   }
