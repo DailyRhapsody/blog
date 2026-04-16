@@ -14,6 +14,7 @@
 
 import { Client } from "@notionhq/client";
 import type {
+  BlockObjectResponse,
   PageObjectResponse,
   RichTextItemResponse,
 } from "@notionhq/client/build/src/api-endpoints";
@@ -119,6 +120,94 @@ function richTextToPlain(items: RichTextItemResponse[]): string {
   return items.map((i) => i.plain_text).join("");
 }
 
+function richTextToMarkdown(items: RichTextItemResponse[]): string {
+  return items
+    .map((i) => {
+      let t = i.plain_text;
+      const a = i.annotations;
+      if (a.code) t = `\`${t}\``;
+      if (a.bold) t = `**${t}**`;
+      if (a.italic) t = `*${t}*`;
+      if (a.strikethrough) t = `~~${t}~~`;
+      if (i.href) t = `[${t}](${i.href})`;
+      return t;
+    })
+    .join("");
+}
+
+function blockToMarkdown(b: BlockObjectResponse): string {
+  switch (b.type) {
+    case "paragraph":
+      return richTextToMarkdown(b.paragraph.rich_text);
+    case "heading_1":
+      return `# ${richTextToMarkdown(b.heading_1.rich_text)}`;
+    case "heading_2":
+      return `## ${richTextToMarkdown(b.heading_2.rich_text)}`;
+    case "heading_3":
+      return `### ${richTextToMarkdown(b.heading_3.rich_text)}`;
+    case "bulleted_list_item":
+      return `- ${richTextToMarkdown(b.bulleted_list_item.rich_text)}`;
+    case "numbered_list_item":
+      return `1. ${richTextToMarkdown(b.numbered_list_item.rich_text)}`;
+    case "quote":
+      return `> ${richTextToMarkdown(b.quote.rich_text)}`;
+    case "to_do":
+      return `- [${b.to_do.checked ? "x" : " "}] ${richTextToMarkdown(b.to_do.rich_text)}`;
+    case "code": {
+      const lang = b.code.language === "plain text" ? "" : b.code.language;
+      return `\`\`\`${lang}\n${richTextToMarkdown(b.code.rich_text)}\n\`\`\``;
+    }
+    case "callout":
+      return `> ${richTextToMarkdown(b.callout.rich_text)}`;
+    case "divider":
+      return "---";
+    default:
+      return "";
+  }
+}
+
+async function extractBodyMarkdown(pageId: string): Promise<string> {
+  const client = getClient();
+  const parts: string[] = [];
+  try {
+    let cursor: string | undefined;
+    do {
+      const r = await client.blocks.children.list({
+        block_id: pageId,
+        start_cursor: cursor,
+        page_size: 100,
+      });
+      for (const b of r.results) {
+        if (!("type" in b)) continue;
+        const md = blockToMarkdown(b as BlockObjectResponse);
+        if (md) parts.push(md);
+      }
+      cursor = r.has_more ? r.next_cursor ?? undefined : undefined;
+    } while (cursor);
+  } catch (e) {
+    console.warn(`[notion] extractBodyMarkdown failed for ${pageId}:`, e);
+    return "";
+  }
+  return parts.join("\n\n");
+}
+
+async function extractBodyMarkdownBatch(
+  pageIds: string[],
+  concurrency = 3
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  let idx = 0;
+  const workers = Array.from({ length: Math.min(concurrency, pageIds.length) }, async () => {
+    while (idx < pageIds.length) {
+      const i = idx++;
+      const id = pageIds[i];
+      out.set(id, await extractBodyMarkdown(id));
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
 function extractDate(page: PageObjectResponse): string {
   const prop = page.properties["Date"];
   if (prop?.type === "date" && prop.date?.start) {
@@ -213,9 +302,9 @@ function extractImages(page: PageObjectResponse): string[] {
 // Core: fetch all diaries from Notion
 // ---------------------------------------------------------------------------
 
-function mapPageToDiary(page: PageObjectResponse): Diary {
+function mapPageToDiary(page: PageObjectResponse, bodyMarkdown: string): Diary {
   const title = extractTitle(page);
-  const summary = extractSummary(page);
+  const propSummary = extractSummary(page);
 
   return {
     id: page.id,
@@ -223,8 +312,9 @@ function mapPageToDiary(page: PageObjectResponse): Diary {
     publishedAt: extractPublishedAt(page),
     pinned: extractPinned(page),
     isPublic: extractIsPublic(page),
-    // If Summary property is filled, use it; otherwise fall back to title
-    summary: summary || title,
+    // Prefer page body (supports full markdown blocks); fall back to Summary
+    // property for legacy entries, then title as last resort.
+    summary: bodyMarkdown || propSummary || title,
     location: extractLocation(page),
     tags: extractTags(page),
     images: extractImages(page),
@@ -267,7 +357,8 @@ export async function getDiaries(): Promise<Diary[]> {
       : undefined;
   } while (cursor);
 
-  const diaries = pages.map((page) => mapPageToDiary(page));
+  const bodies = await extractBodyMarkdownBatch(pages.map((p) => p.id));
+  const diaries = pages.map((page) => mapPageToDiary(page, bodies.get(page.id) ?? ""));
 
   // Sort: pinned first, then by publishedAt/date descending
   diaries.sort((a, b) => {
@@ -300,7 +391,8 @@ export async function getDiaryById(id: string): Promise<Diary | null> {
 
     if (!("properties" in page)) return null;
 
-    return mapPageToDiary(page as PageObjectResponse);
+    const body = await extractBodyMarkdown(id);
+    return mapPageToDiary(page as PageObjectResponse, body);
   } catch {
     return null;
   }
