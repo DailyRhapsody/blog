@@ -228,14 +228,6 @@ function extractPublishedAt(page: PageObjectResponse): string | undefined {
   return undefined;
 }
 
-function extractSummary(page: PageObjectResponse): string {
-  const prop = page.properties["Summary"];
-  if (prop?.type === "rich_text") {
-    return richTextToPlain(prop.rich_text);
-  }
-  return "";
-}
-
 function extractTitle(page: PageObjectResponse): string {
   // Notion databases always have a Title property
   for (const [, prop] of Object.entries(page.properties)) {
@@ -304,7 +296,6 @@ function extractImages(page: PageObjectResponse): string[] {
 
 function mapPageToDiary(page: PageObjectResponse, bodyMarkdown: string): Diary {
   const title = extractTitle(page);
-  const propSummary = extractSummary(page);
 
   return {
     id: page.id,
@@ -312,9 +303,7 @@ function mapPageToDiary(page: PageObjectResponse, bodyMarkdown: string): Diary {
     publishedAt: extractPublishedAt(page),
     pinned: extractPinned(page),
     isPublic: extractIsPublic(page),
-    // Prefer page body (supports full markdown blocks); fall back to Summary
-    // property for legacy entries, then title as last resort.
-    summary: bodyMarkdown || propSummary || title,
+    summary: bodyMarkdown || title,
     location: extractLocation(page),
     tags: extractTags(page),
     images: extractImages(page),
