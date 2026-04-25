@@ -48,3 +48,6 @@ public/audio/*.m4a
 *.tsbuildinfo
 next-env.d.ts
 .env*.local
+
+# Hermes Agent 工作目录（计划文档、临时产物）
+/.hermes/

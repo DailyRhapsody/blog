@@ -14,6 +14,49 @@ const buckets = new Map<string, Bucket>();
 const BOT_UA_RE =
   /(bot|spider|crawler|curl|wget|python-requests|scrapy|httpclient|headless|phantom|playwright|puppeteer|go-http-client|axios|got|node-fetch|postman|insomnia|rest-client|java|php|ruby|perl|dotnet|csharp)/i;
 
+/**
+ * 合法搜索引擎 + 主流 RSS 客户端 + 分享卡片预览 bot 的 UA 白名单。
+ * 这些 UA 关键字本会被 BOT_UA_RE 命中，但都是引流/订阅/分享入口，不应被防爬拦截。
+ * 注意：仅靠 UA 字符串可被伪造；高安全场景应配合反向 DNS 校验
+ * （Googlebot/Bingbot 官方均提供 verification by reverse DNS）。当前仅用 UA 白名单，
+ * 安全衰减由 dr_gate 兜底（即便伪造 UA 拿到 seed，仍要跑 PoW 才能取数据）。
+ */
+const LEGIT_SEARCH_BOT_RE =
+  /(googlebot|bingbot|duckduckbot|yandexbot|baiduspider|sogou|360spider|bytespider|applebot|slurp|petalbot|mojeekbot)/i;
+
+/**
+ * RSS 客户端白名单。
+ * 注意正则收紧：不能用 `rss\b`/`atom\b` 这种通用子串，否则攻击者把 UA 设成 "myrss/1.0"
+ * 就能跳过全局 bot 拦截。这里只列出已知阅读器产品名。
+ * 通用「rss/atom」客户端会走 BOT_UA_RE 的 feed 关键字（不在），即仍被拦——可接受。
+ */
+const LEGIT_RSS_CLIENT_RE =
+  /(feedfetcher|feedburner|feedly|inoreader|netnewswire|reeder\/|theoldreader|newsblur|miniflux|ttrss|tt-rss|tiny tiny rss|rssowl|liferea|newsboat|fluent reader|fraidycat|feedbin|feedbro|akregator|quiterss|rsshub)/i;
+
+/**
+ * 链接卡片预览 bot 白名单（社交分享展开）。
+ * 微信/QQ/豆瓣/即刻/Telegram/Slack/Twitter/Facebook/LinkedIn 等点开链接时会发请求拉 OG/Title。
+ * 这些都是引流入口，不能拦。MicroMessenger 是真人微信内置浏览器，但其 LinkSafetyCheck 会
+ * 用单独的 UA 提前预扫，也一并放行。
+ */
+const LEGIT_LINK_PREVIEW_RE =
+  /(telegrambot|slackbot|slack-imgproxy|twitterbot|facebookexternalhit|linkedinbot|whatsapp|discordbot|skypeuripreview|line-poker|pinterestbot|redditbot|tumblr|microsoftpreview|microsoft office preview|qqlivebrowser|micromessenger.*linksafetycheck|wechat-link|jikebot|doubanbot)/i;
+
+export function isLegitSearchBot(userAgent: string | null | undefined): boolean {
+  const ua = userAgent ?? "";
+  return LEGIT_SEARCH_BOT_RE.test(ua);
+}
+
+export function isLegitRssClient(userAgent: string | null | undefined): boolean {
+  const ua = userAgent ?? "";
+  return LEGIT_RSS_CLIENT_RE.test(ua);
+}
+
+export function isLegitLinkPreviewBot(userAgent: string | null | undefined): boolean {
+  const ua = userAgent ?? "";
+  return LEGIT_LINK_PREVIEW_RE.test(ua);
+}
+
 const SUSPICIOUS_HEADERS = [
   "x-runtime",
   "x-powered-by",
@@ -25,7 +68,12 @@ export function isLikelyBotUserAgent(userAgent: string | null | undefined): bool
   const ua = userAgent ?? "";
   // 1. 无 User-Agent 的通常是简单爬虫
   if (!ua) return true;
-  // 2. 匹配常见爬虫关键字
+  // 2. 合法搜索引擎 / RSS 客户端 / 分享卡片预览：先于 BOT_UA_RE 排除
+  //    （避免 "Googlebot" 命中 "bot" 关键字、"TelegramBot" 命中 "bot" 等）
+  if (LEGIT_SEARCH_BOT_RE.test(ua)) return false;
+  if (LEGIT_RSS_CLIENT_RE.test(ua)) return false;
+  if (LEGIT_LINK_PREVIEW_RE.test(ua)) return false;
+  // 3. 匹配常见爬虫关键字
   if (BOT_UA_RE.test(ua)) return true;
   return false;
 }

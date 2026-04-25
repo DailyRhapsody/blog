@@ -86,11 +86,25 @@ export async function fetchWithTimeout(
 
   const res = await rawFetch(input, initWithCreds, timeoutMs);
 
-  // 受保护接口拿到 403：可能是 GateClient 还没完成握手，等一下再重试一次
+  // 受保护接口拿到 403：可能是 GateClient 还没完成握手。
+  // 退避重试 3 次（间隔 400ms / 1200ms / 2500ms，总耗时 ≤ 12s 与 timeoutMs 对齐），
+  // 每次重试前重新检查 sessionStorage 标记，避免单次重试错过握手完成的窗口。
   if (res.status === 403 && isProtectedApi(input) && typeof window !== "undefined") {
     const ready = await waitForGateReady();
     if (ready) {
-      return rawFetch(input, initWithCreds, timeoutMs);
+      const retryDelays = [400, 1200, 2500];
+      let lastRes = await rawFetch(input, initWithCreds, timeoutMs);
+      for (let i = 0; i < retryDelays.length; i++) {
+        if (lastRes.status !== 403) return lastRes;
+        await new Promise((r) => setTimeout(r, retryDelays[i]));
+        if (!gateAlreadyDone()) {
+          // 标记被清掉了（极端场景），再等一轮事件
+          const reReady = await waitForGateReady();
+          if (!reReady) return lastRes;
+        }
+        lastRes = await rawFetch(input, initWithCreds, timeoutMs);
+      }
+      return lastRes;
     }
   }
   return res;

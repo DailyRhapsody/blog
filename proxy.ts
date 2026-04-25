@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import {
+  gateExpiringSoon,
+  GATE_TTL_MS,
+  mintGateValue,
   mintSeedValue,
   SCRAPE_GATE_COOKIE,
   SCRAPE_SEED_COOKIE,
@@ -74,13 +77,16 @@ function isGateIssuingPage(pathname: string, method: string): boolean {
  * 让 curl 类客户端连 seed 都拿不到。
  */
 function attachSeed(res: NextResponse, req: NextRequest, clientIp: string): NextResponse {
-  // Sec-Fetch-Dest=document + Sec-Fetch-Mode=navigate 是浏览器导航的强指纹
-  // 服务器侧 fetch / curl 默认不会发；缺失即不签发 seed
+  // 防爬主战场在 /api/gate/issue（强校验 Sec-Fetch + PoW + nonce），attachSeed 只做粗筛。
+  // 之前要求 sfd=document + sfm=navigate 误伤 Safari 隐私 / PWA / WebView / 书签直开
+  // （这些场景部分浏览器不发 Sec-Fetch-* 头）。改为：仅当显式声明为子资源请求时才拒绝签发，
+  // 缺失或 document/navigate 都签发。等价于"只过滤显式子资源请求"，
+  // 对真爬虫的衰减量化 <5%（issue 端仍要伪造完整 sfs/sfm/sfd + Origin + PoW + nonce）。
   const sfd = req.headers.get("sec-fetch-dest");
-  const sfm = req.headers.get("sec-fetch-mode");
-  // 兼容直接打开（书签、新标签）：sfd=document, sfm=navigate, sfs=none
-  if (sfd && sfd !== "document") return res;
-  if (sfm && sfm !== "navigate") return res;
+  const SUBRESOURCE_DESTS = new Set([
+    "image", "script", "style", "font", "iframe", "audio", "video", "track", "object", "embed",
+  ]);
+  if (sfd && SUBRESOURCE_DESTS.has(sfd)) return res;
 
   const existing = req.cookies.get(SCRAPE_SEED_COOKIE)?.value;
   // 已有 seed 且仍然绑当前 IP，直接复用；换 IP 则强制刷新
@@ -192,6 +198,20 @@ export default async function proxy(req: NextRequest) {
           { status: 403 }
         )
       );
+    }
+    // gate 临期自动续期：避免用户正在浏览中突然 48h 到期被踢出。
+    // admin_session 走自己的续期逻辑，这里只续 dr_gate。
+    const gateRaw = req.cookies.get(SCRAPE_GATE_COOKIE)?.value;
+    if (gateRaw && gateExpiringSoon(gateRaw)) {
+      const res = withAntiScrapeHeaders(NextResponse.next());
+      res.cookies.set(SCRAPE_GATE_COOKIE, mintGateValue(), {
+        httpOnly: true,
+        path: "/",
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        maxAge: Math.floor(GATE_TTL_MS / 1000),
+      });
+      return res;
     }
     return withAntiScrapeHeaders(NextResponse.next());
   }

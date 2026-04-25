@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { blockIp, markNonceUsed } from "@/lib/honeypot";
+import { blockIp, markNonceUsed, recordViolation } from "@/lib/honeypot";
 import {
   checkPow,
   GATE_TTL_MS,
@@ -113,7 +113,9 @@ export async function POST(req: Request) {
   // 没有 Redis 时 markNonceUsed 返回 true（仅靠 IP bucket 绑定兜底）。
   const fresh = await markNonceUsed(seedInfo.nonce);
   if (!fresh) {
-    await blockIp(clientIp, "gate/issue replay nonce");
+    // 不再 blockIp：WiFi↔4G 切网/页面快速刷新等真实场景会触发 nonce 复用，
+    // 直接封 IP 会误伤真人。改为 recordViolation 记入计数，到阈值再处理。
+    await recordViolation(clientIp, "gate/issue replay nonce");
     return withAntiScrapeHeaders(
       NextResponse.json({ error: "请刷新页面重试" }, { status: 403 })
     );

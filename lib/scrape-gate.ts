@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { isIPv4, isIPv6 } from "node:net";
 
 /**
  * 防爬「双 cookie + 客户端二次握手」机制：
@@ -39,10 +40,56 @@ function sign(payload: string): string {
  * 把 client IP 折叠成一个 16 字符的 bucket。
  * 用 HMAC 而不是裸 sha256，避免攻击者离线穷举所有 /24 子网映射。
  * "unknown" / 空字符串视为同一桶（dev 直连场景），但 verify 时仍要求一致。
+ *
+ * v2: 改为子网粒度（IPv4 /24，IPv6 /48），缓解真人 WiFi↔4G 切换 / 公司出口轮换 IP
+ * 导致 dr_seed 5min 内失效的体验问题。同子网内攻击者仍需各自跑 PoW，安全衰减可忽略。
  */
+function ipSubnet(clientIp: string): string {
+  const raw = clientIp.trim();
+  if (!raw || raw === "unknown") return "unknown";
+
+  // IPv4 映射的 IPv6 (::ffff:1.2.3.4) 当作 IPv4 处理
+  const v4Mapped = raw.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  const ip = v4Mapped ? v4Mapped[1] : raw;
+
+  if (isIPv4(ip)) {
+    const p = ip.split(".");
+    return `v4:${p[0]}.${p[1]}.${p[2]}.0/24`;
+  }
+
+  if (isIPv6(ip)) {
+    // 展开压缩形式：把 :: 还原为足额的 0 段，统一成 8 段
+    const hasDoubleColon = ip.includes("::");
+    let segments: string[];
+    if (hasDoubleColon) {
+      const [head, tail] = ip.split("::");
+      const headParts = head ? head.split(":") : [];
+      const tailParts = tail ? tail.split(":") : [];
+      const fillCount = 8 - headParts.length - tailParts.length;
+      segments = [
+        ...headParts,
+        ...Array(Math.max(0, fillCount)).fill("0"),
+        ...tailParts,
+      ];
+    } else {
+      segments = ip.split(":");
+    }
+    // 规范化每段（去前导 0、转小写）
+    const norm = segments.map((s) => (s === "" ? "0" : parseInt(s, 16).toString(16)));
+    // 兜底：长度不足 8 段的异常输入直接归为 unknown 桶（不应到这里，isIPv6 已校验）
+    if (norm.length !== 8) return "v6:malformed";
+    // /48 = 取前 3 段，其余清零
+    return `v6:${norm[0]}:${norm[1]}:${norm[2]}::/48`;
+  }
+
+  // 无法识别的格式：当作 unknown 一桶（dev/异常场景）
+  return "unknown";
+}
+
 function ipBucket(clientIp: string | null | undefined): string {
   const ip = (clientIp ?? "").trim() || "unknown";
-  return createHmac("sha256", gateSecret()).update(`ip:${ip}`).digest("hex").slice(0, 16);
+  const subnet = ipSubnet(ip);
+  return createHmac("sha256", gateSecret()).update(`ip:${subnet}`).digest("hex").slice(0, 16);
 }
 
 /** 3 段 token：用于 dr_gate（不绑 IP，允许真人换 WiFi）。 */
@@ -123,6 +170,19 @@ export function mintGateValue(): string {
 
 export function verifyGateValue(raw: string | undefined): boolean {
   return parseAndVerifyGate(raw) !== null;
+}
+
+/**
+ * 判断 dr_gate 是否临近过期（剩余 < threshold ms）。
+ * 用于让 proxy 在用户访问受保护路径时自动续期，避免正在浏览过程中突然失效。
+ */
+export function gateExpiringSoon(
+  raw: string | undefined,
+  thresholdMs: number = 2 * 60 * 60 * 1000 // 默认最后 2h
+): boolean {
+  const parsed = parseAndVerifyGate(raw);
+  if (!parsed) return false;
+  return parsed.exp - Date.now() < thresholdMs;
 }
 
 /** 校验客户端提交的 PoW：sha256(seedNonce + ":" + counter) 必须以 difficulty 个 0 开头。 */
