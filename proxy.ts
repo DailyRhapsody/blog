@@ -99,6 +99,14 @@ function attachSeed(res: NextResponse, req: NextRequest, clientIp: string): Next
     secure: process.env.NODE_ENV === "production",
     maxAge: Math.floor(SEED_TTL_MS / 1000),
   });
+  // 关键：dr_seed 绑定 client IP bucket，绝不能被 Vercel CDN / 任何中间层缓存
+  // 后转发给其他用户。Vercel 默认会缓存 HTML 响应（x-vercel-cache: HIT），
+  // 命中缓存时连 middleware 都不会跑——所有用户共享同一份 seed → ipBucket 不匹配
+  // → PoW 完成后 /api/gate/issue 永远 403 → 真人永远刷不出数据。
+  // 这里强制 private + no-store 让 Vercel Edge 不缓存任何带 dr_seed 的响应。
+  res.headers.set("Cache-Control", "private, no-store, max-age=0");
+  res.headers.set("CDN-Cache-Control", "no-store");
+  res.headers.set("Vercel-CDN-Cache-Control", "no-store");
   return res;
 }
 
