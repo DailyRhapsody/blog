@@ -37,10 +37,6 @@ yarn-error.log*
 # local admin data (optional: remove to track data/diaries.json)
 /data/
 
-# 文章页背景音乐等版权音频勿提交仓库；生产在 Vercel 配 NEXT_PUBLIC_ENTRIES_BGM_SRC 指向 Supabase Storage 等 HTTPS 直链
-public/audio/*.mp3
-public/audio/*.m4a
-
 # vercel
 .vercel
 
