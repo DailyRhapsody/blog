@@ -159,11 +159,14 @@ async function extractMediaFromBody(pageId: string): Promise<PublicMedia[]> {
   const client = getClient();
   const imageBlocks: BlockObjectResponse[] = [];
   let firstVideo: BlockObjectResponse | null = null;
-  try {
+
+  // 递归遍历 block 树（限深度，处理 column_list / toggle / synced_block 等容器）
+  async function walk(blockId: string, depth: number): Promise<void> {
+    if (depth > 3) return;
     let cursor: string | undefined;
     do {
       const r = await client.blocks.children.list({
-        block_id: pageId,
+        block_id: blockId,
         start_cursor: cursor,
         page_size: 100,
       });
@@ -175,9 +178,16 @@ async function extractMediaFromBody(pageId: string): Promise<PublicMedia[]> {
         } else if (block.type === "image") {
           imageBlocks.push(block);
         }
+        if (block.has_children) {
+          await walk(block.id, depth + 1);
+        }
       }
       cursor = r.has_more ? r.next_cursor ?? undefined : undefined;
     } while (cursor);
+  }
+
+  try {
+    await walk(pageId, 0);
   } catch (e) {
     console.warn(`[notion-moments] extractMediaFromBody failed for ${pageId}:`, e);
     return [];

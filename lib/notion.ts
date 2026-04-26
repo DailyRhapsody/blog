@@ -174,29 +174,69 @@ function blockToMarkdown(b: BlockObjectResponse): string {
       return `> ${richTextToMarkdown(b.callout.rich_text)}`;
     case "divider":
       return "---";
+    case "image": {
+      const f = b.image;
+      const url = f.type === "file" ? f.file.url : f.type === "external" ? f.external.url : "";
+      return url ? `![](${url})` : "";
+    }
+    case "video": {
+      const f = b.video;
+      const url = f.type === "file" ? f.file.url : f.type === "external" ? f.external.url : "";
+      return url ? `![](${url})` : "";
+    }
+    case "bookmark":
+      return b.bookmark.url ? `[${b.bookmark.url}](${b.bookmark.url})` : "";
+    case "embed":
+      return b.embed.url ? `[${b.embed.url}](${b.embed.url})` : "";
+    case "toggle":
+      // 折叠块：标题作为段落输出，子内容由 walkBlocks 递归追加在后面
+      return richTextToMarkdown(b.toggle.rich_text);
+    case "synced_block":
+    case "column_list":
+    case "column":
+      // 容器型 block 自身没有内容，子节点会被 walkBlocks 递归输出
+      return "";
     default:
       return "";
   }
 }
 
-async function extractBodyMarkdown(pageId: string): Promise<string> {
+/**
+ * 递归遍历 page 下的所有 block，处理 toggle / column_list / synced_block 等容器。
+ * Notion API 对每个有 has_children 的 block 都需要再调一次 list；这里限制深度避免循环。
+ */
+async function walkBlocks(
+  blockId: string,
+  depth: number,
+  parts: string[],
+  maxDepth = 3
+): Promise<void> {
+  if (depth > maxDepth) return;
   const client = getClient();
+  let cursor: string | undefined;
+  do {
+    const r = await client.blocks.children.list({
+      block_id: blockId,
+      start_cursor: cursor,
+      page_size: 100,
+    });
+    for (const b of r.results) {
+      if (!("type" in b)) continue;
+      const block = b as BlockObjectResponse;
+      const md = blockToMarkdown(block);
+      if (md) parts.push(md);
+      if (block.has_children) {
+        await walkBlocks(block.id, depth + 1, parts, maxDepth);
+      }
+    }
+    cursor = r.has_more ? r.next_cursor ?? undefined : undefined;
+  } while (cursor);
+}
+
+async function extractBodyMarkdown(pageId: string): Promise<string> {
   const parts: string[] = [];
   try {
-    let cursor: string | undefined;
-    do {
-      const r = await client.blocks.children.list({
-        block_id: pageId,
-        start_cursor: cursor,
-        page_size: 100,
-      });
-      for (const b of r.results) {
-        if (!("type" in b)) continue;
-        const md = blockToMarkdown(b as BlockObjectResponse);
-        if (md) parts.push(md);
-      }
-      cursor = r.has_more ? r.next_cursor ?? undefined : undefined;
-    } while (cursor);
+    await walkBlocks(pageId, 0, parts);
   } catch (e) {
     console.warn(`[notion] extractBodyMarkdown failed for ${pageId}:`, e);
     return "";
