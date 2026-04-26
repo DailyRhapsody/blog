@@ -76,17 +76,29 @@ async function getRedis() {
 }
 
 const CACHE_KEY = "notion:diaries";
+// stale-while-revalidate 阈值：缓存超过这个时间就在后台异步重拉，但仍把旧数据立即返回给用户。
+// 默认 5 分钟，作者改完 Notion 最长 5min 看到新内容；显式调 /api/revalidate 可立即清掉。
+const CACHE_STALE_MS = (Number(process.env.NOTION_CACHE_STALE_S) || 300) * 1000;
+// Redis TTL 兜底：远大于 STALE，让缓存几乎永不"消失"，只会变 stale。24h 后再不访问才被清。
+const CACHE_HARD_TTL_S = 24 * 60 * 60;
+
+type CacheEntry = { data: Diary[]; refreshedAt: number };
 
 function cacheTtl(): number {
-  return Number(process.env.NOTION_CACHE_TTL) || 60;
+  return Number(process.env.NOTION_CACHE_TTL) || CACHE_HARD_TTL_S;
 }
 
-async function getCached(): Promise<Diary[] | null> {
+async function getCached(): Promise<CacheEntry | null> {
   const redis = await getRedis();
   if (!redis) return null;
   try {
-    const data = await redis.get<Diary[]>(CACHE_KEY);
-    return data ?? null;
+    const data = await redis.get<CacheEntry | Diary[]>(CACHE_KEY);
+    if (!data) return null;
+    // 兼容旧格式（直接是 Diary[]，没有 refreshedAt）
+    if (Array.isArray(data)) {
+      return { data, refreshedAt: 0 };
+    }
+    return data;
   } catch {
     return null;
   }
@@ -96,7 +108,8 @@ async function setCache(diaries: Diary[]): Promise<void> {
   const redis = await getRedis();
   if (!redis) return;
   try {
-    await redis.set(CACHE_KEY, diaries, { ex: cacheTtl() });
+    const entry: CacheEntry = { data: diaries, refreshedAt: Date.now() };
+    await redis.set(CACHE_KEY, entry, { ex: cacheTtl() });
   } catch {
     // cache write failure is non-fatal
   }
@@ -310,40 +323,28 @@ function mapPageToDiary(page: PageObjectResponse, bodyMarkdown: string): Diary {
   };
 }
 
-/**
- * Fetch all diary entries from Notion, sorted by date descending.
- * Results are cached in Upstash for NOTION_CACHE_TTL seconds.
- */
-export async function getDiaries(): Promise<Diary[]> {
-  // Try cache first
-  const cached = await getCached();
-  if (cached) return cached;
+// 后台正在进行的重拉任务，避免多请求并发触发多次重拉
+let _pendingRefresh: Promise<Diary[]> | null = null;
 
+async function refreshDiariesFromNotion(): Promise<Diary[]> {
   const client = getClient();
   const databaseId = getDatabaseId();
 
   const pages: PageObjectResponse[] = [];
   let cursor: string | undefined;
-
   do {
     const response = await client.databases.query({
       database_id: databaseId,
       start_cursor: cursor,
       page_size: 100,
-      sorts: [
-        { property: "Date", direction: "descending" },
-      ],
+      sorts: [{ property: "Date", direction: "descending" }],
     });
-
     for (const page of response.results) {
       if ("properties" in page) {
         pages.push(page as PageObjectResponse);
       }
     }
-
-    cursor = response.has_more
-      ? response.next_cursor ?? undefined
-      : undefined;
+    cursor = response.has_more ? response.next_cursor ?? undefined : undefined;
   } while (cursor);
 
   const bodies = await extractBodyMarkdownBatch(pages.map((p) => p.id));
@@ -363,6 +364,51 @@ export async function getDiaries(): Promise<Diary[]> {
   return diaries;
 }
 
+function triggerBackgroundRefresh(): void {
+  if (_pendingRefresh) return; // 已有任务在跑，避免堆叠
+  const task = refreshDiariesFromNotion()
+    .catch((e) => {
+      console.warn("[notion] background refresh failed:", e);
+      return [] as Diary[];
+    })
+    .finally(() => {
+      _pendingRefresh = null;
+    });
+  _pendingRefresh = task;
+  // Vercel serverless function 在响应返回后会冻结实例，导致后台 Promise 被中断。
+  // 用 waitUntil 让 runtime 等任务完成（不延长用户响应时间）。
+  // 动态 import 避免在没有 @vercel/functions 的环境（如本地 dev）报错。
+  import("@vercel/functions").then(({ waitUntil }) => waitUntil(task)).catch(() => {
+    // 不在 Vercel 环境（本地 / 测试）：fire-and-forget，进程不结束就能跑完
+  });
+}
+
+/**
+ * Fetch all diary entries from Notion, sorted by date descending.
+ *
+ * Stale-While-Revalidate 策略：
+ *  - 有缓存：立即返回旧数据（≤1s）。若超过 NOTION_CACHE_STALE_S（默认 5min）触发后台异步重拉。
+ *  - 无缓存（首次冷启动）：同步拉取（~18s），完成后缓存供后续使用。
+ *  - 后台重拉失败不影响读取（用户继续看到旧数据，下次再试）。
+ *
+ * 用户改 Notion 后：
+ *  - 默认最长 NOTION_CACHE_STALE_S 后看到新内容
+ *  - 显式调 /api/revalidate?secret=... 立即清缓存（下次请求触发同步重拉）
+ */
+export async function getDiaries(): Promise<Diary[]> {
+  const cached = await getCached();
+  if (cached) {
+    const age = Date.now() - cached.refreshedAt;
+    if (age > CACHE_STALE_MS) {
+      // 数据过期但仍可用：后台异步刷新，立即返回旧数据
+      triggerBackgroundRefresh();
+    }
+    return cached.data;
+  }
+  // 完全无缓存：同步拉
+  return refreshDiariesFromNotion();
+}
+
 /**
  * Fetch a single diary entry by Notion page ID.
  */
@@ -370,7 +416,7 @@ export async function getDiaryById(id: string): Promise<Diary | null> {
   // Try to find in cache first
   const cached = await getCached();
   if (cached) {
-    const found = cached.find((d) => d.id === id);
+    const found = cached.data.find((d) => d.id === id);
     if (found) return found;
   }
 

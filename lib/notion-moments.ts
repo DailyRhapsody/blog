@@ -87,12 +87,19 @@ async function getRedis() {
 }
 
 const CACHE_KEY = "notion:moments";
+const CACHE_STALE_MS = (Number(process.env.NOTION_CACHE_STALE_S) || 300) * 1000;
+const CACHE_HARD_TTL_S = 24 * 60 * 60;
 
-async function getCached(): Promise<PublicMoment[] | null> {
+type CacheEntry = { data: PublicMoment[]; refreshedAt: number };
+
+async function getCached(): Promise<CacheEntry | null> {
   const redis = await getRedis();
   if (!redis) return null;
   try {
-    return (await redis.get<PublicMoment[]>(CACHE_KEY)) ?? null;
+    const data = await redis.get<CacheEntry | PublicMoment[]>(CACHE_KEY);
+    if (!data) return null;
+    if (Array.isArray(data)) return { data, refreshedAt: 0 };
+    return data;
   } catch {
     return null;
   }
@@ -102,8 +109,9 @@ async function setCache(items: PublicMoment[]): Promise<void> {
   const redis = await getRedis();
   if (!redis) return;
   try {
-    const ttl = Number(process.env.NOTION_CACHE_TTL) || 60;
-    await redis.set(CACHE_KEY, items, { ex: ttl });
+    const ttl = Number(process.env.NOTION_CACHE_TTL) || CACHE_HARD_TTL_S;
+    const entry: CacheEntry = { data: items, refreshedAt: Date.now() };
+    await redis.set(CACHE_KEY, entry, { ex: ttl });
   } catch {
     // non-fatal
   }
@@ -267,19 +275,15 @@ function mapPageToMoment(
  * Fetch all moments from Notion, sorted by date descending.
  * Returns PublicMoment[] with an extra isPublic field for filtering.
  */
-export async function getMoments(): Promise<(PublicMoment & { isPublic: boolean })[]> {
-  const cached = await getCached();
-  if (cached) {
-    // cached items don't have isPublic, treat as public
-    return cached.map((m) => ({ ...m, isPublic: true }));
-  }
+// 后台正在进行的重拉任务，避免多请求并发触发多次重拉
+let _pendingRefresh: Promise<PublicMoment[]> | null = null;
 
+async function refreshMomentsFromNotion(): Promise<PublicMoment[]> {
   const client = getClient();
   const databaseId = getDatabaseId();
 
   const pages: PageObjectResponse[] = [];
   let cursor: string | undefined;
-
   do {
     const response = await client.databases.query({
       database_id: databaseId,
@@ -287,23 +291,57 @@ export async function getMoments(): Promise<(PublicMoment & { isPublic: boolean 
       page_size: 100,
       sorts: [{ property: "Date", direction: "descending" }],
     });
-
     for (const page of response.results) {
       if ("properties" in page) {
         pages.push(page as PageObjectResponse);
       }
     }
-
     cursor = response.has_more ? response.next_cursor ?? undefined : undefined;
   } while (cursor);
 
-  // 并发批处理拉每个 page 的正文媒体（限并发 3，避免 Notion API 限流）
   const mediaMap = await extractMediaBatch(pages.map((p) => p.id));
   const items = pages.map((page) => mapPageToMoment(page, mediaMap.get(page.id) ?? []));
-
-  // Cache without isPublic (it's in the cached version anyway)
   await setCache(items);
   return items;
+}
+
+function triggerBackgroundRefresh(): void {
+  if (_pendingRefresh) return;
+  const task = refreshMomentsFromNotion()
+    .catch((e) => {
+      console.warn("[notion-moments] background refresh failed:", e);
+      return [] as PublicMoment[];
+    })
+    .finally(() => {
+      _pendingRefresh = null;
+    });
+  _pendingRefresh = task;
+  import("@vercel/functions").then(({ waitUntil }) => waitUntil(task)).catch(() => {
+    // 不在 Vercel 环境：fire-and-forget
+  });
+}
+
+/**
+ * Fetch all moments from Notion, sorted by date descending.
+ *
+ * Stale-While-Revalidate（与 lib/notion.ts 同策略）：
+ *  - 有缓存：立即返回旧数据。若超 NOTION_CACHE_STALE_S（5min）触发后台异步重拉。
+ *  - 无缓存：同步拉。
+ *
+ * Returns PublicMoment[] with an extra isPublic field for filtering.
+ */
+export async function getMoments(): Promise<(PublicMoment & { isPublic: boolean })[]> {
+  const cached = await getCached();
+  if (cached) {
+    const age = Date.now() - cached.refreshedAt;
+    if (age > CACHE_STALE_MS) {
+      triggerBackgroundRefresh();
+    }
+    // cached items don't have isPublic, treat as public
+    return cached.data.map((m) => ({ ...m, isPublic: true }));
+  }
+  const items = await refreshMomentsFromNotion();
+  return items.map((m) => ({ ...m, isPublic: true }));
 }
 
 /**
