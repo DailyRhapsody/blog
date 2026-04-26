@@ -7,7 +7,6 @@ import { resolveGeoForRequest } from "@/lib/geoip";
 import {
   guardApiRequest,
   isLikelyBotUserAgent,
-  withAntiScrapeHeaders,
 } from "@/lib/request-guard";
 import { SCRAPE_GATE_COOKIE, verifyGateValue } from "@/lib/scrape-gate";
 
@@ -38,16 +37,17 @@ function numOrNull(v: unknown): number | null {
 }
 
 export async function POST(req: Request) {
+  // analytics 是「fire-and-forget」最佳努力上报：任何分支都返回 204
+  // 让前端不看到 console 红 + 不触发 fetchWithTimeout 的 403 退避循环。
+  // 不该计入的（管理员/无 gate/解析失败/存储故障）一律静默丢弃。
+
   // 管理员自身的浏览不计入统计
   if (await isAdmin()) return new NextResponse(null, { status: 204 });
 
-  // 必须持有有效 dr_gate cookie，否则视为脏数据，静默丢弃。
-  // 之前任何人都能匿名 POST 污染统计/UTM 字段，配合 sendBeacon 也无法检验，现已收紧。
+  // 没有 dr_gate 视为脏数据，静默丢弃；不返回 403（避免污染前端 console + 触发 fetchWithTimeout 重试）
   const gate = (await cookies()).get(SCRAPE_GATE_COOKIE)?.value;
   if (!verifyGateValue(gate)) {
-    return withAntiScrapeHeaders(
-      NextResponse.json({ error: "missing gate" }, { status: 403 })
-    );
+    return new NextResponse(null, { status: 204 });
   }
 
   const blocked = await guardApiRequest(req, {
@@ -55,27 +55,24 @@ export async function POST(req: Request) {
     limit: 240,
     windowMs: 60_000,
     blockSuspicious: false,
-    // sendBeacon 在部分浏览器不带 Origin 头，依然要求 Sec-Fetch 校验把关
     checkOrigin: false,
     checkSecFetch: false,
   });
-  if (blocked) return blocked;
+  // guard 命中限流时返回 204 而不是 429，避免触发前端任何重试逻辑
+  if (blocked) return new NextResponse(null, { status: 204 });
 
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return withAntiScrapeHeaders(NextResponse.json({ error: "Invalid JSON" }, { status: 400 }));
+    return new NextResponse(null, { status: 204 });
   }
 
   const parsed = normalizeVisitPath(body.path);
-  if (!parsed) {
-    return withAntiScrapeHeaders(NextResponse.json({ error: "Invalid path" }, { status: 400 }));
-  }
+  if (!parsed) return new NextResponse(null, { status: 204 });
 
   const ua = req.headers.get("user-agent");
   const isBot = isLikelyBotUserAgent(ua);
-
   const ip = getClientIpFromRequest(req);
   const geo = await resolveGeoForRequest(req, ip);
 
@@ -102,10 +99,8 @@ export async function POST(req: Request) {
       screenHeight: numOrNull(body.screenHeight),
     });
   } catch (e) {
-    console.error("[analytics] recordVisit", e);
-    return withAntiScrapeHeaders(
-      NextResponse.json({ error: "Analytics storage unavailable" }, { status: 503 })
-    );
+    // 存储故障静默忽略：analytics 不应影响用户体验
+    console.warn("[analytics] recordVisit failed:", e);
   }
 
   return new NextResponse(null, { status: 204 });

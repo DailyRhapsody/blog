@@ -2,14 +2,17 @@
  * 带超时的 fetch 包装。
  * - 默认 30 秒超时（应对 Vercel function 冷启动 + Notion API 缓存 MISS 时的全量拉取，
  *   实测首次冷启动可达 16-18s。原 12s 默认在缓存失效后会 abort 导致空白页）
+ * - 重试圈用 8 秒超时（缓存已建好，正常响应 ≤ 3s 足够）
+ * - 总耗时上限 = 30s（首攻）+ 8s（waitForGateReady）+ 8s × 3（退避重试）≈ 47s
+ *   故障态恢复路径（已有 cache 但首次握手失败）= 8s × 退避 ≈ 16-20s
  * - 如果调用方传了自己的 signal，会尊重它（任一触发即中止）
- * - 超时被触发时与用户主动 abort 一样会拒绝为 AbortError
- * - 受保护接口的 403（没有 dr_gate）会等待 GateClient 完成 PoW 握手后自动重试一次。
+ * - 受保护接口的 403（没有 dr_gate）会等待 GateClient 完成 PoW 握手后阶梯重试。
  */
 
 const GATE_READY_EVENT = "dr-gate-ready";
 const GATE_DONE_FLAG = "dr_gate_done";
 const GATE_WAIT_TIMEOUT_MS = 8000;
+const RETRY_TIMEOUT_MS = 8000;
 
 function gateAlreadyDone(): boolean {
   if (typeof window === "undefined") return false;
@@ -96,16 +99,17 @@ export async function fetchWithTimeout(
     const ready = await waitForGateReady();
     if (ready) {
       const retryDelays = [400, 1200, 2500];
-      let lastRes = await rawFetch(input, initWithCreds, timeoutMs);
+      // 重试圈用 RETRY_TIMEOUT_MS（8s），不再用 timeoutMs（默认 30s）
+      // 因为缓存命中后正常响应 ≤ 3s，重试再用 30s 是浪费用户等待。
+      let lastRes = await rawFetch(input, initWithCreds, RETRY_TIMEOUT_MS);
       for (let i = 0; i < retryDelays.length; i++) {
         if (lastRes.status !== 403) return lastRes;
         await new Promise((r) => setTimeout(r, retryDelays[i]));
         if (!gateAlreadyDone()) {
-          // 标记被清掉了（极端场景），再等一轮事件
           const reReady = await waitForGateReady();
           if (!reReady) return lastRes;
         }
-        lastRes = await rawFetch(input, initWithCreds, timeoutMs);
+        lastRes = await rawFetch(input, initWithCreds, RETRY_TIMEOUT_MS);
       }
       return lastRes;
     }

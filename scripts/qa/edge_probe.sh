@@ -20,6 +20,22 @@ FAILED_CASES=()
 # ANSI
 GREEN="\033[32m"; RED="\033[31m"; DIM="\033[2m"; NC="\033[0m"
 
+# ───────────────────────────────────────────
+# 测试前置：清空本地 honeypot（避免反向用例累计触发自动封 IP）
+# 仅在本地 dev (BASE_URL=localhost) 且配置了 KV 时执行
+# ───────────────────────────────────────────
+if [[ "$B" =~ localhost|127\.0\.0\.1 ]] && [ -f .env.local ]; then
+  KV_URL=$(grep "^KV_REST_API_URL=" .env.local 2>/dev/null | cut -d= -f2- | tr -d '"')
+  KV_TOKEN=$(grep "^KV_REST_API_TOKEN=" .env.local 2>/dev/null | cut -d= -f2- | tr -d '"')
+  if [ -n "$KV_URL" ] && [ -n "$KV_TOKEN" ]; then
+    echo -e "${DIM}[setup] 清空本地 honeypot 残留...${NC}"
+    for IP in "::1" "127.0.0.1"; do
+      curl -s -X POST "$KV_URL/del/dr:blocked:$IP" -H "Authorization: Bearer $KV_TOKEN" >/dev/null
+      curl -s -X POST "$KV_URL/del/dr:viol:$IP" -H "Authorization: Bearer $KV_TOKEN" >/dev/null
+    done
+  fi
+fi
+
 case_pass() {
   printf "  ${GREEN}✅${NC} %s\n" "$1"
   PASS=$((PASS+1))
@@ -183,6 +199,43 @@ if [ "$CODE" = "200" ] && echo "$BODY" | grep -q "POST with Authorization"; then
 else
   case_fail "T19: code=$CODE body=$BODY"
 fi
+
+# ───────────────────────────────────────────
+# Phase 4: same-origin 反向用例（A12）+ analytics 静默（A10）
+# 注意：T22 放最前面跑，因为反向用例累计会触发 honeypot 自动封 IP（4 次/10min）
+# ───────────────────────────────────────────
+echo
+echo "================ Phase 4 写操作 CSRF + analytics 204 ================"
+
+# 在跑 T22 前再次清空 honeypot（前面 Phase 2-3 有多个反向用例 ≥4 次累计触发自动封）
+if [ -n "${KV_URL:-}" ] && [ -n "${KV_TOKEN:-}" ]; then
+  for IP in "::1" "127.0.0.1"; do
+    curl -s -X POST "$KV_URL/del/dr:blocked:$IP" -H "Authorization: Bearer $KV_TOKEN" >/dev/null
+    curl -s -X POST "$KV_URL/del/dr:viol:$IP" -H "Authorization: Bearer $KV_TOKEN" >/dev/null
+  done
+fi
+
+run_case T22 "状态码=204" "POST /api/analytics/collect 无 dr_gate 时静默 204（不再 403）"
+# 用真人 UA 避开 middleware bot UA 检查；
+# 不带 dr_gate cookie 时 route 内部 verifyGateValue 失败应静默返回 204（之前是 403）
+code=$(curl -s -o /dev/null -w "%{http_code}" \
+  -H "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15" \
+  -X POST -H "Content-Type: application/json" -d "{}" "$B/api/analytics/collect")
+if [ "$code" = "204" ]; then
+  case_pass "T22"
+elif [ "$code" = "403" ]; then
+  case_fail "T22: 403 (本地 honeypot 残留 dr:blocked:::1，需手动清 Redis)"
+else
+  case_fail "T22: 实际 $code"
+fi
+
+run_case T20 "状态码=403" "POST /api/auth/login 缺 Origin/Referer 双缺失"
+code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d "{}" "$B/api/auth/login")
+[ "$code" = "403" ] && case_pass "T20" || case_fail "T20: 实际 $code"
+
+run_case T21 "状态码=403" "POST 伪造 Host: evil.com + Origin: evil.com"
+code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Host: evil.com" -H "Origin: https://evil.com" -H "Content-Type: application/json" -d "{}" "$B/api/auth/login")
+[ "$code" = "403" ] && case_pass "T21" || case_fail "T21: 实际 $code"
 
 # ───────────────────────────────────────────
 # 汇总
