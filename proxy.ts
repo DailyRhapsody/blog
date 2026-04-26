@@ -15,19 +15,15 @@ import { isLikelyBotUserAgent, withAntiScrapeHeaders } from "@/lib/request-guard
 import { isIpBlocked, recordViolation } from "@/lib/honeypot";
 import { limitByIp } from "@/lib/upstash-rate-limit";
 import { getClientIpFromRequest } from "@/lib/client-ip";
+import { verifyAdminCookieValue } from "@/lib/auth";
 
 const ADMIN_COOKIE = "admin_session";
 
 function verifyAdminSession(cookieValue: string): boolean {
-  const i = cookieValue.lastIndexOf(".");
-  if (i === -1) return false;
-  try {
-    const payloadStr = atob(cookieValue.slice(0, i).replace(/-/g, "+").replace(/_/g, "/"));
-    const payload = JSON.parse(payloadStr) as { exp?: number };
-    return !!payload.exp && payload.exp > Date.now();
-  } catch {
-    return false;
-  }
+  // 必须做完整 HMAC 验签 + exp 检查；之前只看 exp 会让任何人伪造
+  // base64({"exp":99999999999}).anything 即被中间件当成管理员，绕过
+  // IP 黑名单 / 限流 / dr_gate / honeypot。
+  return verifyAdminCookieValue(cookieValue);
 }
 
 /**

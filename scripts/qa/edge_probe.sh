@@ -154,6 +154,37 @@ RESP=$(curl -s -D - -H "X-Forwarded-For: 2001:db8:dead::1" -H "Cookie: dr_seed=$
 echo "$RESP" | grep -qi "set-cookie:.*dr_seed=" && case_pass "T15b" || case_fail "T15b: 跨 IPv6 /48 复用了旧 seed"
 
 # ───────────────────────────────────────────
+# Phase 3: 安全 Blocker 反向用例（A1 / A3）
+# ───────────────────────────────────────────
+echo
+echo "================ Phase 3 安全反向 ================"
+
+run_case T16 "状态码=403" "伪造 admin_session 不能绕过 middleware"
+# 构造一个 base64 payload + 任意 64 字符的 sig
+FAKE_PAYLOAD=$(python3 -c 'import base64,json; p=json.dumps({"admin":True,"exp":99999999999999}); print(base64.urlsafe_b64encode(p.encode()).rstrip(b"=").decode())' 2>/dev/null)
+FAKE_COOKIE="admin_session=${FAKE_PAYLOAD}.deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+code=$(curl -s -o /dev/null -w "%{http_code}" -H "Cookie: $FAKE_COOKIE" "$B/api/diaries")
+[ "$code" = "403" ] && case_pass "T16" || case_fail "T16: 伪造 admin 通过了 middleware (实际 $code)"
+
+run_case T17 "状态码=401" "/api/revalidate POST 无 Authorization 头"
+code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$B/api/revalidate")
+[ "$code" = "401" ] && case_pass "T17" || case_fail "T17: 实际 $code"
+
+run_case T18 "状态码=401" "/api/revalidate query secret 不再生效"
+code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$B/api/revalidate?secret=anything")
+[ "$code" = "401" ] && case_pass "T18" || case_fail "T18: 实际 $code"
+
+run_case T19 "状态码=200" "/api/revalidate GET 仅返回健康检查（不再触发清缓存）"
+RESP=$(curl -s -w "\n%{http_code}" "$B/api/revalidate")
+CODE=$(echo "$RESP" | tail -1)
+BODY=$(echo "$RESP" | head -1)
+if [ "$CODE" = "200" ] && echo "$BODY" | grep -q "POST with Authorization"; then
+  case_pass "T19"
+else
+  case_fail "T19: code=$CODE body=$BODY"
+fi
+
+# ───────────────────────────────────────────
 # 汇总
 # ───────────────────────────────────────────
 echo

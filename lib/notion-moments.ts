@@ -90,13 +90,13 @@ const CACHE_KEY = "notion:moments";
 const CACHE_STALE_MS = (Number(process.env.NOTION_CACHE_STALE_S) || 300) * 1000;
 const CACHE_HARD_TTL_S = 24 * 60 * 60;
 
-type CacheEntry = { data: PublicMoment[]; refreshedAt: number };
+type CacheEntry = { data: (PublicMoment & { isPublic: boolean })[]; refreshedAt: number };
 
 async function getCached(): Promise<CacheEntry | null> {
   const redis = await getRedis();
   if (!redis) return null;
   try {
-    const data = await redis.get<CacheEntry | PublicMoment[]>(CACHE_KEY);
+    const data = await redis.get<CacheEntry | (PublicMoment & { isPublic: boolean })[]>(CACHE_KEY);
     if (!data) return null;
     if (Array.isArray(data)) return { data, refreshedAt: 0 };
     return data;
@@ -105,7 +105,7 @@ async function getCached(): Promise<CacheEntry | null> {
   }
 }
 
-async function setCache(items: PublicMoment[]): Promise<void> {
+async function setCache(items: (PublicMoment & { isPublic: boolean })[]): Promise<void> {
   const redis = await getRedis();
   if (!redis) return;
   try {
@@ -275,10 +275,7 @@ function mapPageToMoment(
  * Fetch all moments from Notion, sorted by date descending.
  * Returns PublicMoment[] with an extra isPublic field for filtering.
  */
-// 后台正在进行的重拉任务，避免多请求并发触发多次重拉
-let _pendingRefresh: Promise<PublicMoment[]> | null = null;
-
-async function refreshMomentsFromNotion(): Promise<PublicMoment[]> {
+async function refreshMomentsFromNotion(): Promise<(PublicMoment & { isPublic: boolean })[]> {
   const client = getClient();
   const databaseId = getDatabaseId();
 
@@ -305,12 +302,15 @@ async function refreshMomentsFromNotion(): Promise<PublicMoment[]> {
   return items;
 }
 
+// 后台正在进行的重拉任务，避免多请求并发触发多次重拉
+let _pendingRefresh: Promise<(PublicMoment & { isPublic: boolean })[]> | null = null;
+
 function triggerBackgroundRefresh(): void {
   if (_pendingRefresh) return;
   const task = refreshMomentsFromNotion()
     .catch((e) => {
       console.warn("[notion-moments] background refresh failed:", e);
-      return [] as PublicMoment[];
+      return [] as (PublicMoment & { isPublic: boolean })[];
     })
     .finally(() => {
       _pendingRefresh = null;
@@ -328,7 +328,8 @@ function triggerBackgroundRefresh(): void {
  *  - 有缓存：立即返回旧数据。若超 NOTION_CACHE_STALE_S（5min）触发后台异步重拉。
  *  - 无缓存：同步拉。
  *
- * Returns PublicMoment[] with an extra isPublic field for filtering.
+ * 注意：缓存里的 isPublic 必须保留真实值。之前为「兼容老缓存格式」无脑覆写为 true，
+ * 导致 Public=false 的私密 moments 也对外公开（隐私泄露 bug）。
  */
 export async function getMoments(): Promise<(PublicMoment & { isPublic: boolean })[]> {
   const cached = await getCached();
@@ -337,11 +338,9 @@ export async function getMoments(): Promise<(PublicMoment & { isPublic: boolean 
     if (age > CACHE_STALE_MS) {
       triggerBackgroundRefresh();
     }
-    // cached items don't have isPublic, treat as public
-    return cached.data.map((m) => ({ ...m, isPublic: true }));
+    return cached.data;
   }
-  const items = await refreshMomentsFromNotion();
-  return items.map((m) => ({ ...m, isPublic: true }));
+  return refreshMomentsFromNotion();
 }
 
 /**
