@@ -1,5 +1,65 @@
-import DOMPurify from "isomorphic-dompurify";
+import sanitizeHtml from "sanitize-html";
 import { marked } from "marked";
+
+/**
+ * 等价于原 isomorphic-dompurify 调用：
+ *   DOMPurify.sanitize(html, {
+ *     USE_PROFILES: { html: true },
+ *     ADD_TAGS: ["input"],
+ *     ADD_ATTR: ["target", "rel", "checked", "disabled", "type"],
+ *   })
+ *
+ * 切换到 sanitize-html 是为了摆脱 jsdom（间接依赖了 ESM-only 的
+ * @exodus/bytes，在 Turbopack SSR 阶段以 require() 加载会触发
+ * ERR_REQUIRE_ESM，导致 /entries 在 Vercel runtime 500）。sanitize-html
+ * 基于 parse5，纯 JS，前后端通用。
+ *
+ * DOMPurify 的 html profile 大致允许：常见块/行内元素 + 安全的 a/img/table/list/code/blockquote/...
+ * 这里手工列出对齐集合 + 显式追加 `input`（task-list checkbox）。
+ */
+const ALLOWED_TAGS: string[] = [
+  // 段落 / 标题 / 文本
+  "h1", "h2", "h3", "h4", "h5", "h6",
+  "p", "br", "hr", "div", "span",
+  "strong", "b", "em", "i", "u", "s", "strike", "del", "ins", "mark",
+  "small", "sub", "sup",
+  "blockquote", "cite", "q",
+  // 列表
+  "ul", "ol", "li", "dl", "dt", "dd",
+  // 链接 / 媒体
+  "a", "img", "picture", "source", "figure", "figcaption",
+  // 代码
+  "code", "pre", "kbd", "samp", "var",
+  // 表格
+  "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption", "colgroup", "col",
+  // 任务列表 checkbox
+  "input",
+];
+
+const ALLOWED_ATTRS: Record<string, string[]> = {
+  "*": ["class", "id", "title", "lang", "dir"],
+  a: ["href", "name", "target", "rel"],
+  img: ["src", "srcset", "alt", "width", "height", "loading"],
+  source: ["src", "srcset", "type", "media", "sizes"],
+  th: ["align", "colspan", "rowspan", "scope"],
+  td: ["align", "colspan", "rowspan"],
+  col: ["span"],
+  colgroup: ["span"],
+  input: ["type", "checked", "disabled"],
+};
+
+function sanitize(html: string): string {
+  return sanitizeHtml(html, {
+    allowedTags: ALLOWED_TAGS,
+    allowedAttributes: ALLOWED_ATTRS,
+    // 默认 schemes 与 DOMPurify 一致：禁止 javascript:
+    allowedSchemes: ["http", "https", "mailto", "tel", "data"],
+    allowedSchemesByTag: { img: ["http", "https", "data"] },
+    allowProtocolRelative: true,
+    // sanitize-html 默认会把单标签 input 输出为 <input ... />；保留即可
+    selfClosing: ["img", "br", "hr", "input", "source", "col"],
+  });
+}
 import { highlightHashtagsForEditorHtml } from "@/lib/editor-hashtag-highlight";
 import { stripHashtagOnlyLinesInProse } from "@/lib/hashtags";
 
@@ -89,11 +149,7 @@ marked.use({
   breaks: true,
   hooks: {
     postprocess(html) {
-      return DOMPurify.sanitize(html, {
-        USE_PROFILES: { html: true },
-        ADD_TAGS: ["input"],
-        ADD_ATTR: ["target", "rel", "checked", "disabled", "type"],
-      });
+      return sanitize(html);
     },
   },
   renderer: {
