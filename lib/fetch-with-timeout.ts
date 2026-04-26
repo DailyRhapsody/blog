@@ -1,6 +1,7 @@
 /**
  * 带超时的 fetch 包装。
- * - 默认 12 秒超时，避免慢网络下永久 pending 导致 loading 永不消失
+ * - 默认 30 秒超时（应对 Vercel function 冷启动 + Notion API 缓存 MISS 时的全量拉取，
+ *   实测首次冷启动可达 16-18s。原 12s 默认在缓存失效后会 abort 导致空白页）
  * - 如果调用方传了自己的 signal，会尊重它（任一触发即中止）
  * - 超时被触发时与用户主动 abort 一样会拒绝为 AbortError
  * - 受保护接口的 403（没有 dr_gate）会等待 GateClient 完成 PoW 握手后自动重试一次。
@@ -76,7 +77,7 @@ function isProtectedApi(input: RequestInfo | URL): boolean {
 export async function fetchWithTimeout(
   input: RequestInfo | URL,
   init: RequestInit = {},
-  timeoutMs = 12_000
+  timeoutMs = 30_000
 ): Promise<Response> {
   // 默认带 cookie，避免组件忘记加 credentials 导致 dr_gate 没发出去
   const initWithCreds: RequestInit = {
