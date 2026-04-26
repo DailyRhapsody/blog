@@ -3,7 +3,11 @@
  *
  * Unified data source for the moments tab.
  * Reads from a Notion database with properties:
- *   Name (title), Date (date), Images (files), Public (checkbox)
+ *   Name (title), Date (date), Public (checkbox)
+ *
+ * 媒体（图片/视频）从页面正文 block 提取（不再使用 Images files 字段）：
+ *   - 视频优先：正文有任何 video block，type=2，取首个视频
+ *   - 否则：按 block 顺序收集 image block，最多 9 张
  *
  * Outputs PublicMoment format compatible with the frontend.
  *
@@ -12,6 +16,7 @@
 
 import { Client } from "@notionhq/client";
 import type {
+  BlockObjectResponse,
   PageObjectResponse,
 } from "@notionhq/client/build/src/api-endpoints";
 
@@ -118,32 +123,111 @@ export async function invalidateMomentsCache(): Promise<void> {
 // Property extraction
 // ---------------------------------------------------------------------------
 
-function extractImages(page: PageObjectResponse): PublicMedia[] {
-  const prop = page.properties["Images"];
-  if (prop?.type !== "files") return [];
+const MAX_IMAGES_PER_MOMENT = 9;
 
-  return prop.files.map((f, idx) => {
-    let url = "";
-    if (f.type === "file") {
-      url = f.file.url;
-    } else if (f.type === "external") {
-      url = f.external.url;
-    }
-    if (!url) return null;
+function blockMediaUrl(block: BlockObjectResponse): string | null {
+  if (block.type === "image") {
+    const f = block.image;
+    if (f.type === "file") return f.file.url;
+    if (f.type === "external") return f.external.url;
+  } else if (block.type === "video") {
+    const f = block.video;
+    if (f.type === "file") return f.file.url;
+    if (f.type === "external") return f.external.url;
+  }
+  return null;
+}
 
-    // Detect video by file extension or name
-    const isVideo = /\.(mp4|webm|mov)$/i.test(f.name ?? url);
+/**
+ * 从 Notion 页面正文 block 提取图片/视频。
+ * 规则（与产品定义一致）：
+ *  - 一条 moment 是纯图或纯视频，不带文字
+ *  - 视频优先：只要正文里有任何 video block，type=2，取首个视频
+ *  - 否则按 block 顺序收集 image block，最多 9 张
+ *
+ * 旧字段 properties.Images 不再使用——用户会在 Notion 后台清空那个字段。
+ */
+async function extractMediaFromBody(pageId: string): Promise<PublicMedia[]> {
+  const client = getClient();
+  const imageBlocks: BlockObjectResponse[] = [];
+  let firstVideo: BlockObjectResponse | null = null;
+  try {
+    let cursor: string | undefined;
+    do {
+      const r = await client.blocks.children.list({
+        block_id: pageId,
+        start_cursor: cursor,
+        page_size: 100,
+      });
+      for (const b of r.results) {
+        if (!("type" in b)) continue;
+        const block = b as BlockObjectResponse;
+        if (block.type === "video" && !firstVideo) {
+          firstVideo = block;
+        } else if (block.type === "image") {
+          imageBlocks.push(block);
+        }
+      }
+      cursor = r.has_more ? r.next_cursor ?? undefined : undefined;
+    } while (cursor);
+  } catch (e) {
+    console.warn(`[notion-moments] extractMediaFromBody failed for ${pageId}:`, e);
+    return [];
+  }
 
-    return {
+  // 视频优先
+  if (firstVideo) {
+    const url = blockMediaUrl(firstVideo);
+    if (!url) return [];
+    return [{
       url,
-      thumbUrl: url, // Notion doesn't provide separate thumbnails
-      mediaType: isVideo ? "video/mp4" : "image/jpeg",
+      thumbUrl: url,
+      mediaType: "video/mp4",
       width: 0,
       height: 0,
       duration: 0,
-      sortOrder: idx,
-    } satisfies PublicMedia;
-  }).filter((x): x is PublicMedia => x !== null);
+      sortOrder: 0,
+    }];
+  }
+
+  // 无视频：按顺序最多 9 张图片
+  return imageBlocks
+    .slice(0, MAX_IMAGES_PER_MOMENT)
+    .map((b, idx): PublicMedia | null => {
+      const url = blockMediaUrl(b);
+      if (!url) return null;
+      return {
+        url,
+        thumbUrl: url,
+        mediaType: "image/jpeg",
+        width: 0,
+        height: 0,
+        duration: 0,
+        sortOrder: idx,
+      };
+    })
+    .filter((x): x is PublicMedia => x !== null);
+}
+
+/**
+ * 并发抓多页 body 的媒体。Notion API 没有官方 RPS 文档但实测 3 并发安全；
+ * 与 lib/notion.ts 的 extractBodyMarkdownBatch 保持一致。
+ */
+async function extractMediaBatch(
+  pageIds: string[],
+  concurrency = 3
+): Promise<Map<string, PublicMedia[]>> {
+  const out = new Map<string, PublicMedia[]>();
+  let idx = 0;
+  const workers = Array.from({ length: Math.min(concurrency, pageIds.length) }, async () => {
+    while (idx < pageIds.length) {
+      const i = idx++;
+      const id = pageIds[i];
+      out.set(id, await extractMediaFromBody(id));
+    }
+  });
+  await Promise.all(workers);
+  return out;
 }
 
 function extractDate(page: PageObjectResponse): string {
@@ -160,8 +244,10 @@ function extractIsPublic(page: PageObjectResponse): boolean {
   return true;
 }
 
-function mapPageToMoment(page: PageObjectResponse): PublicMoment & { isPublic: boolean } {
-  const media = extractImages(page);
+function mapPageToMoment(
+  page: PageObjectResponse,
+  media: PublicMedia[]
+): PublicMoment & { isPublic: boolean } {
   const hasVideo = media.some((m) => m.mediaType.startsWith("video/"));
 
   return {
@@ -211,7 +297,9 @@ export async function getMoments(): Promise<(PublicMoment & { isPublic: boolean 
     cursor = response.has_more ? response.next_cursor ?? undefined : undefined;
   } while (cursor);
 
-  const items = pages.map(mapPageToMoment);
+  // 并发批处理拉每个 page 的正文媒体（限并发 3，避免 Notion API 限流）
+  const mediaMap = await extractMediaBatch(pages.map((p) => p.id));
+  const items = pages.map((page) => mapPageToMoment(page, mediaMap.get(page.id) ?? []));
 
   // Cache without isPublic (it's in the cached version anyway)
   await setCache(items);
