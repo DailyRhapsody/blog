@@ -98,6 +98,11 @@ async function getCached(): Promise<CacheEntry | null> {
     if (Array.isArray(data)) {
       return { data, refreshedAt: 0 };
     }
+    // 损坏数据保护：若 Redis 中的值不是 {data: Diary[], refreshedAt} 形态（比如被人手动塞了字符串/对象），
+    // 直接当 cache miss 处理，让上层走回源，而不是把 undefined 透传给调用方导致 500。
+    if (typeof data !== "object" || !Array.isArray((data as CacheEntry).data)) {
+      return null;
+    }
     return data;
   } catch {
     return null;

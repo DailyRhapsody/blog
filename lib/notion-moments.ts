@@ -99,6 +99,10 @@ async function getCached(): Promise<CacheEntry | null> {
     const data = await redis.get<CacheEntry | (PublicMoment & { isPublic: boolean })[]>(CACHE_KEY);
     if (!data) return null;
     if (Array.isArray(data)) return { data, refreshedAt: 0 };
+    // 损坏数据保护：见 notion.ts 同位置注释。
+    if (typeof data !== "object" || !Array.isArray((data as CacheEntry).data)) {
+      return null;
+    }
     return data;
   } catch {
     return null;
