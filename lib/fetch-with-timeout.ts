@@ -25,19 +25,21 @@ function waitForGateReady(): Promise<boolean> {
   if (gateAlreadyDone()) return Promise.resolve(true);
   return new Promise((resolve) => {
     let done = false;
-    const timer = setTimeout(() => {
-      if (done) return;
-      done = true;
-      window.removeEventListener(GATE_READY_EVENT, onReady as EventListener);
-      resolve(false);
-    }, GATE_WAIT_TIMEOUT_MS);
-    function onReady() {
+    function finish(ok: boolean) {
       if (done) return;
       done = true;
       clearTimeout(timer);
+      clearInterval(poll);
       window.removeEventListener(GATE_READY_EVENT, onReady as EventListener);
-      resolve(true);
+      resolve(ok);
     }
+    function onReady() { finish(true); }
+    // 关键：除了监听事件，再开一个轮询兜底。
+    // 因为 fetchWithTimeout 第一次拿到 403 后才进入这里 addEventListener，
+    // GateClient 可能在我们注册监听器之前就已经 dispatch 完事件并写好
+    // sessionStorage 标记 —— 此时事件丢失但 gateAlreadyDone() 能查到。
+    const poll = setInterval(() => { if (gateAlreadyDone()) finish(true); }, 100);
+    const timer = setTimeout(() => finish(false), GATE_WAIT_TIMEOUT_MS);
     window.addEventListener(GATE_READY_EVENT, onReady as EventListener);
   });
 }
