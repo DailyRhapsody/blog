@@ -57,6 +57,11 @@ export default function StickyProfileHeader({
       const handler = () => {
         if (!a) return;
         a.muted = false;
+        // 如果音频在静音播放期间因 buffer stall、浏览器策略、页面切换等原因暂停了，
+        // 仅 unmute 不会恢复播放，需要显式 play()。
+        if (a.paused) {
+          void a.play().catch(() => { /* 极端情况播放仍失败，静默忽略 */ });
+        }
         for (const evt of INTERACTION_EVENTS) {
           window.removeEventListener(evt, handler, true);
         }

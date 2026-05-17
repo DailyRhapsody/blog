@@ -102,6 +102,32 @@ async function performHandshake(): Promise<void> {
       sessionStorage.setItem(GATE_COOKIE_HINT_KEY, "1");
       // 通知页面重新获取数据（如果某些组件早于握手完成就发起了请求）
       window.dispatchEvent(new Event("dr-gate-ready"));
+    } else if (res.status === 403) {
+      // IP bucket 不匹配（Surge 代理切换出口 IP）→ 换 seed 在同一条 fetch 通道重试一次
+      const seedBefore = readCookie(SEED_COOKIE);
+      if (!seedBefore) return;
+      try {
+        await fetch("/api/gate/seed", { method: "GET", credentials: "same-origin" });
+        const newSeed = readCookie(SEED_COOKIE);
+        if (!newSeed || newSeed === seedBefore) return;
+        const newParts = newSeed.split(".");
+        if (newParts.length !== 4) return;
+        const newNonce = newParts[1];
+        if (!newNonce) return;
+        const retryCounter = await solvePow(newNonce, difficulty);
+        const retryRes = await fetch("/api/gate/issue", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ counter: retryCounter }),
+        });
+        if (retryRes.ok) {
+          sessionStorage.setItem(GATE_COOKIE_HINT_KEY, "1");
+          window.dispatchEvent(new Event("dr-gate-ready"));
+        }
+      } catch {
+        /* 静默失败 */
+      }
     }
   } catch {
     /* 静默失败：用户可能没网，下次刷新再试 */

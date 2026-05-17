@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { blockIp, markNonceUsed, recordViolation } from "@/lib/honeypot";
+import { markNonceUsed, recordViolation } from "@/lib/honeypot";
 import {
   checkPow,
   GATE_TTL_MS,
@@ -53,7 +53,9 @@ export async function POST(req: Request) {
   const sfm = req.headers.get("sec-fetch-mode");
   const sfd = req.headers.get("sec-fetch-dest");
   if (sfs !== "same-origin" || sfm !== "cors" || sfd !== "empty") {
-    await blockIp(clientIp, `gate/issue bad sec-fetch sfs=${sfs} sfm=${sfm} sfd=${sfd}`);
+    // 不再 blockIp：Surge MITM 等代理可能篡改 Sec-Fetch-* 头，
+    // 一次失败就封 24h 会误伤真人。改为 recordViolation 计数，到阈值再封。
+    await recordViolation(clientIp, `gate/issue bad sec-fetch sfs=${sfs} sfm=${sfm} sfd=${sfd}`);
     return withAntiScrapeHeaders(
       NextResponse.json({ error: "请求来源异常" }, { status: 403 })
     );
@@ -99,7 +101,9 @@ export async function POST(req: Request) {
   }
   const counter = typeof body.counter === "string" ? body.counter : "";
   if (!checkPow(seedInfo.nonce, counter)) {
-    await blockIp(clientIp, `gate/issue bad PoW`);
+    // 不再 blockIp：网络抖动、页面长时间挂起后重试等真实场景可能导致 PoW 失败，
+    // 一次失败就封 24h 过于激进。改为 recordViolation 计数，到阈值再封。
+    await recordViolation(clientIp, `gate/issue bad PoW`);
     return withAntiScrapeHeaders(
       NextResponse.json(
         { error: "校验失败", difficulty: POW_DIFFICULTY },
